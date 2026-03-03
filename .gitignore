@@ -1,0 +1,87 @@
+# ==============================
+# OS & Editor Files
+# ==============================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ==============================
+# Environment & Secrets
+# ==============================
+.env
+.env.*
+!.env.example
+.local
+
+# ==============================
+# Logs
+# ==============================
+*.log
+logs/
+/tmp/server.log
+backend/server.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==============================
+# Python / Backend
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==============================
+# Node.js & Frontend (Next.js)
+# ==============================
+node_modules/
+.next/
+out/
+dist-ssr/
+frontend/dist/
+
+# ==============================
+# Project Specific & Media Data
+# ==============================
+# Generated media and downloads
+data/downloads/
+backend/downloads/
+
+# Automation state and config
+automation/data/
+automation/config.json
+automation/history.json
+automation/cookies.json
+
+# Test artifacts
+frontend/tests/screenshots/*.png
+frontend/tests/playwright/*.png
+frontend/tests/playwright/debug_*.html

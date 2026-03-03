@@ -1,0 +1,26 @@
+[Unit]
+Description=Bilibili Mover Automation Service
+After=network.target network-online.target
+
+[Service]
+Type=simple
+# 运行该服务的用户 (若作为系统服务运行，请修改为实际用户名；若作为用户服务运行，可删除此行)
+# User=<YOUR_USERNAME>
+
+# 设定工作目录为 automation 目录
+# 请将 <PROJECT_ROOT> 替换为本项目的绝对路径
+WorkingDirectory=<PROJECT_ROOT>/automation
+
+# 使用虚拟环境的 Python 执行脚本
+# 请将 <PROJECT_ROOT> 替换为本项目的绝对路径
+ExecStart=<PROJECT_ROOT>/venv/bin/python3 mover.py
+
+# 崩溃或退出后自动重启
+Restart=on-failure
+RestartSec=10
+
+# 确保终端输出不会缓冲，这能让你在日志里看到实时打印
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

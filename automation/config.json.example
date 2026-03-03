@@ -1,0 +1,12 @@
+{
+  "channels": [
+    {
+      "name": "日テレNEWS",
+      "url": "https://www.youtube.com/@ntv_news/videos",
+      "keyword": "#newsevery",
+      "bili_tid": 208,
+      "tags": "日语学习,双语字幕,日本,日本新闻,日常"
+    }
+  ],
+  "check_interval_seconds": 1800
+}

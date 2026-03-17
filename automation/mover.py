@@ -113,6 +113,7 @@ def upload_to_bilibili(video_path, cover_path, title, tid, description, tags):
     cmd = [
         str(BILIUP_PATH), "upload",
         str(video_path),
+        "--submit", "web",
         "--tid", str(tid),
         "--title", title[:80],
         "--desc", description[:250],

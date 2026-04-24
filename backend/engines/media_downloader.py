@@ -33,14 +33,17 @@ class YouTubeMediaDownloader:
         with yt_dlp.YoutubeDL(ytdlp_configuration) as ytdlp_instance:
             extracted_metadata = ytdlp_instance.extract_info(video_url, download=True)
             
-            video_title = extracted_metadata['title']
-            original_extension = extracted_metadata['ext']
+            # 使用 prepare_filename 获取 yt-dlp 实际保存（经过净化）的文件路径
+            video_file_path = Path(ytdlp_instance.prepare_filename(extracted_metadata))
             
-            video_file_full_path = self.download_path / f"{video_title}.{original_extension}"
-            audio_file_full_path = video_file_full_path.with_suffix('.wav')
+            # 获取净化后的标题（不含扩展名），确保后续生成的缓存文件名也是合法的
+            video_title = video_file_path.stem
+            
+            # 音频文件路径根据视频路径生成（后缀改为 .wav）
+            audio_file_path = video_file_path.with_suffix('.wav')
             
             return {
                 "title": video_title,
-                "video_path": str(video_file_full_path),
-                "audio_path": str(audio_file_full_path)
+                "video_path": str(video_file_path),
+                "audio_path": str(audio_file_path)
             }

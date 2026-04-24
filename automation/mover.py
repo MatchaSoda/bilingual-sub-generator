@@ -136,7 +136,8 @@ def upload_to_bilibili(video_path, cover_path, title, tid, description, tags):
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌ B 站投稿失败!")
-        print(f"  错误详情: {e.stderr}")
+        error_msg = e.stderr or e.stdout or str(e)
+        print(f"  错误详情: {error_msg}")
         return False
 
 def process_and_upload(video_id, video_url, video_title, config):

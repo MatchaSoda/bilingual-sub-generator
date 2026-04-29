@@ -80,6 +80,7 @@ automation/data/
 automation/config.json
 automation/history.json
 automation/cookies.json
+cookies.txt
 
 # Test artifacts
 frontend/tests/screenshots/*.png

@@ -21,6 +21,9 @@ if not VENV_PYTHON.exists():
 HTTP_PROXY = os.getenv("HTTP_PROXY", "http://127.0.0.1:10808")
 HTTPS_PROXY = os.getenv("HTTPS_PROXY", "http://127.0.0.1:10808")
 
+_COOKIES_FILE = BASE_DIR / "cookies.txt"
+YT_DLP_COOKIES = str(_COOKIES_FILE) if _COOKIES_FILE.exists() else None
+
 GOOGLE_API_KEYS = os.getenv("GOOGLE_API_KEYS", "")
 MODEL_NAME = "gemini-3-flash-preview"
 

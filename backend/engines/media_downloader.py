@@ -1,6 +1,6 @@
 import yt_dlp
 from pathlib import Path
-from config.settings import DOWNLOADS_DIR, HTTP_PROXY, HTTPS_PROXY
+from config.settings import DOWNLOADS_DIR, HTTP_PROXY, HTTPS_PROXY, YT_DLP_COOKIES
 
 class YouTubeMediaDownloader:
     def __init__(self, target_directory=None):
@@ -28,7 +28,12 @@ class YouTubeMediaDownloader:
             'socket_timeout': 30,
             'retries': 10,
             'nocheckcertificate': True,
+            'extractor_args': {'youtube': {'player_client': ['default', 'mweb', 'tv']}},
         }
+
+        if YT_DLP_COOKIES:
+            ytdlp_configuration['cookiefile'] = YT_DLP_COOKIES
+            print(f"🍪 Using cookies: {YT_DLP_COOKIES}", flush=True)
 
         with yt_dlp.YoutubeDL(ytdlp_configuration) as ytdlp_instance:
             extracted_metadata = ytdlp_instance.extract_info(video_url, download=True)

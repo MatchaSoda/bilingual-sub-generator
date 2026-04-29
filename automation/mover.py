@@ -22,6 +22,9 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # 哔哩哔哩登录凭据 (假设用户已通过 biliup login 生成或手动放置)
 BILI_SESSION = Path(__file__).parent / "cookies.json"
 
+# YouTube cookies (Netscape 格式，放在项目根目录) —— 用于规避 YouTube 机器人检测
+YT_COOKIES = BASE_DIR / "cookies.txt"
+
 def load_history():
     if HISTORY_FILE.exists():
         try:
@@ -60,9 +63,13 @@ def get_video_list(channel_url):
     try:
         cmd = [
             str(YTDLP_PATH), "--ignore-errors", "--playlist-items", "1-10",
+            "--extractor-args", "youtube:player_client=default,mweb,tv",
             "--print", "%(id)s|%(title)s|%(webpage_url)s|%(description)j",
-            channel_url
         ]
+        if YT_COOKIES.exists():
+            cmd[1:1] = ["--cookies", str(YT_COOKIES)]
+            print(f"🍪 使用 cookies: {YT_COOKIES}")
+        cmd.append(channel_url)
         env = os.environ.copy()
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
         

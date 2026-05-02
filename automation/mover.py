@@ -4,6 +4,7 @@ import time
 import subprocess
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 # 项目根路径配置
@@ -24,6 +25,20 @@ BILI_SESSION = Path(__file__).parent / "cookies.json"
 
 # YouTube cookies (Netscape 格式，放在项目根目录) —— 用于规避 YouTube 机器人检测
 YT_COOKIES = BASE_DIR / "cookies.txt"
+
+def make_cookies_copy():
+    """复制 master cookies 到临时文件返回路径。
+
+    yt-dlp 每次运行会把 Set-Cookie 响应写回 cookies 文件；YouTube 在风控时返回的是匿名
+    Set-Cookie，会把 master 文件里的认证 token 一点点冲掉。我们让 yt-dlp 只污染临时副本，
+    master 永远是用户最近从浏览器导出的那一份。
+    """
+    if not YT_COOKIES.exists():
+        return None
+    fd, tmp_path = tempfile.mkstemp(prefix="yt-cookies-", suffix=".txt")
+    os.close(fd)
+    shutil.copyfile(YT_COOKIES, tmp_path)
+    return tmp_path
 
 def load_history():
     if HISTORY_FILE.exists():
@@ -59,20 +74,25 @@ def load_config():
         exit(1)
 
 def get_video_list(channel_url):
-    """通过 yt-dlp 获取频道最近的 10 个视频"""
+    """通过 yt-dlp --flat-playlist 快速获取频道最近 10 个视频的 id/title/url。
+
+    描述字段在频道页拿不到，按需通过 fetch_video_description 单独获取，
+    这样可以避开 YouTube 的 PO token / JS challenge 慢路径。
+    """
+    cookies_tmp = make_cookies_copy()
     try:
         cmd = [
-            str(YTDLP_PATH), "--ignore-errors", "--playlist-items", "1-10",
-            "--extractor-args", "youtube:player_client=default,mweb,tv",
-            "--print", "%(id)s|%(title)s|%(webpage_url)s|%(description)j",
+            str(YTDLP_PATH), "--ignore-errors", "--flat-playlist",
+            "--playlist-items", "1-10",
+            "--print", "%(id)s|%(title)s|%(webpage_url)s",
         ]
-        if YT_COOKIES.exists():
-            cmd[1:1] = ["--cookies", str(YT_COOKIES)]
-            print(f"🍪 使用 cookies: {YT_COOKIES}")
+        if cookies_tmp:
+            cmd[1:1] = ["--cookies", cookies_tmp]
+            print(f"🍪 使用 cookies (临时副本): {cookies_tmp}")
         cmd.append(channel_url)
         env = os.environ.copy()
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
-        
+
         if result.returncode != 0:
             print(f"❌ yt-dlp 获取失败: {result.stderr[:200]}")
             return []
@@ -80,22 +100,14 @@ def get_video_list(channel_url):
         videos = []
         for line in result.stdout.splitlines():
             if not line.strip(): continue
-            parts = line.split('|', 3)
+            parts = line.split('|', 2)
             if len(parts) >= 3:
-                description = ""
-                if len(parts) >= 4:
-                    desc_str = parts[3].strip()
-                    if desc_str and desc_str != "NA":
-                        try: description = json.loads(desc_str)
-                        except: description = desc_str
-                
                 videos.append({
                     'id': parts[0].strip(),
                     'title': parts[1].strip(),
                     'url': parts[2].strip(),
-                    'description': description
                 })
-        
+
         if videos:
             print(f"📥 成功获取视频列表:")
             for v in videos:
@@ -107,6 +119,46 @@ def get_video_list(channel_url):
     except Exception as e:
         print(f"❌ 列表异常: {e}")
         return []
+    finally:
+        if cookies_tmp:
+            try: os.unlink(cookies_tmp)
+            except OSError: pass
+
+def fetch_video_description(video_url):
+    """单独获取一个视频的描述（仅在 title 不匹配时调用）。
+
+    用 --ignore-no-formats-error：YouTube 频道视频的 player API 在无头环境下常常返回
+    LOGIN_REQUIRED 而拿不到 formats，但 description 是从 webpage HTML 解析的，加这个
+    flag 让 yt-dlp 不要因为 formats 缺失就抛错，从而能落到 webpage fallback 拿到描述。
+    """
+    cookies_tmp = make_cookies_copy()
+    try:
+        cmd = [
+            str(YTDLP_PATH), "--skip-download", "--ignore-no-formats-error",
+            "--print", "%(description)j",
+        ]
+        if cookies_tmp:
+            cmd[1:1] = ["--cookies", cookies_tmp]
+        cmd.append(video_url)
+        env = os.environ.copy()
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+        if result.returncode != 0:
+            print(f"⚠️ 拉取描述失败: {result.stderr[:200]}")
+            return ""
+        desc_str = result.stdout.strip()
+        if not desc_str or desc_str == "NA":
+            return ""
+        try:
+            return json.loads(desc_str)
+        except Exception:
+            return desc_str
+    except Exception as e:
+        print(f"⚠️ 描述异常: {e}")
+        return ""
+    finally:
+        if cookies_tmp:
+            try: os.unlink(cookies_tmp)
+            except OSError: pass
 
 def upload_to_bilibili(video_path, cover_path, title, tid, description, tags):
     """使用 biliup 投稿到 B 站"""
@@ -226,14 +278,16 @@ def main():
             for entry in videos:
                 if entry['id'] not in history:
                     keyword = channel.get('keyword', '').lower()
-                    
                     title = entry.get('title') or ""
-                    description = entry.get('description') or ""
 
-                    is_match = not keyword or \
-                               keyword in title.lower() or \
-                               keyword in description.lower()
-                    
+                    if not keyword or keyword in title.lower():
+                        is_match = True
+                    else:
+                        # title 没命中再去拿描述（每个 ~10s，所以放后面）
+                        print(f"🔎 标题未命中，拉取描述: {title}")
+                        description = fetch_video_description(entry['url'])
+                        is_match = keyword in description.lower()
+
                     if is_match:
                         print(f"should process: {entry['title']}")
                         if process_and_upload(entry['id'], entry['url'], entry['title'], channel):

@@ -4,6 +4,7 @@
       "name": "日テレNEWS",
       "url": "https://www.youtube.com/@ntv_news/videos",
       "keyword": "#newsevery",
+      "exclude": ["死", "火災", "殺", "害", "児", "遺棄"],
       "bili_tid": 208,
       "tags": "日语学习,双语字幕,日本,日本新闻,日常"
     }

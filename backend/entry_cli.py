@@ -20,7 +20,7 @@ def run_subtitle_generation_pipeline():
     argument_parser.add_argument("video_url", help="YouTube video URL")
     argument_parser.add_argument("--target-language", default="zh-CN", help="Target language code")
     argument_parser.add_argument("--whisper-model", default="base", help="Whisper model size")
-    argument_parser.add_argument("--gemini-model", default="gemini-3-flash-preview", help="Gemini model identifier")
+    argument_parser.add_argument("--gemini-model", default="gemini-3.1-flash-lite", help="Gemini model identifier")
     argument_parser.add_argument("--enable-furigana", action="store_true", help="Enable Japanese furigana")
     argument_parser.add_argument("--fix-source-text", action="store_true", help="Enable AI source text correction")
     argument_parser.add_argument("--output", "-o", help="Custom output video path (including filename and extension)")

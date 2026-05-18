@@ -25,7 +25,7 @@ _COOKIES_FILE = BASE_DIR / "cookies.txt"
 YT_DLP_COOKIES = str(_COOKIES_FILE) if _COOKIES_FILE.exists() else None
 
 GOOGLE_API_KEYS = os.getenv("GOOGLE_API_KEYS", "")
-MODEL_NAME = "gemini-3-flash-preview"
+MODEL_NAME = "gemini-3.1-flash-lite"
 
 DEFAULT_STYLE = {
     "font_size_main": 52,

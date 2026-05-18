@@ -232,7 +232,7 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
             <FormControl fullWidth variant="filled">
               <InputLabel sx={{ fontWeight: 900, textTransform: 'uppercase', fontSize: 10, letterSpacing: 1.5 }}>翻译引擎 (Gemini 2026 Series)</InputLabel>
               <Select
-                value={form.translation_model || 'gemini-3-flash-preview'}
+                value={form.translation_model || 'gemini-3.1-flash-lite'}
                 onChange={(e)=>setForm({...form, translation_model: e.target.value})}
                 disableUnderline
                 sx={{ 
@@ -242,9 +242,9 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
                   fontWeight: 700
                 }}
               >
+                <MenuItem value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (轻量默认)</MenuItem>
                 <MenuItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro (旗舰级推理)</MenuItem>
                 <MenuItem value="gemini-3-flash-preview">Gemini 3 Flash (极速响应)</MenuItem>
-                <MenuItem value="gemini-3-deep-think">Gemini 3 Deep Think (深度工程思维)</MenuItem>
                 <MenuItem value="gemini-2.5-flash">Gemini 2.5 Flash (稳定版)</MenuItem>
               </Select>
             </FormControl>

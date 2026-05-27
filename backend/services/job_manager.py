@@ -50,6 +50,7 @@ class JobExecutionManager:
             cli_command.append("--enable-furigana")
         if request_parameters.should_fix_source_text:
             cli_command.append("--fix-source-text")
+        cli_command.append("--translate-title")
         
         execution_environment = os.environ.copy()
         execution_environment["HTTP_PROXY"] = HTTP_PROXY

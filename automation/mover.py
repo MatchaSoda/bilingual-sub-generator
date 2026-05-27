@@ -209,7 +209,8 @@ def process_and_upload(video_id, video_url, video_title, config):
     cli_cmd = [
         str(PYTHON_PATH), str(CLI_PATH), video_url,
         "--enable-furigana",
-        "--whisper-model", "large-v3", 
+        "--translate-title",
+        "--whisper-model", "large-v3",
         "--output", str(target_video_path)
     ]
     
@@ -227,12 +228,16 @@ def process_and_upload(video_id, video_url, video_title, config):
         universal_newlines=True
     )
     
+    translated_title = None
     for line in process.stdout:
+        stripped_line = line.strip()
         # 实时打印子进程输出
-        print(f"  [CLI] {line.strip()}", flush=True)
+        print(f"  [CLI] {stripped_line}", flush=True)
+        if "Translated title:" in stripped_line:
+            translated_title = stripped_line.split("Translated title:", 1)[1].strip()
 
     process.wait()
-    
+
     if process.returncode != 0:
         print(f"❌ CLI 失败 (Code {process.returncode})", flush=True)
         return False
@@ -241,8 +246,25 @@ def process_and_upload(video_id, video_url, video_title, config):
         print(f"❌ 找不到生成的文件: {target_video_path}", flush=True)
         return False
 
+    # 用中文译名重命名输出文件与封面，使本地文件名和 B 站投稿名都为中文
+    display_title = video_title
+    if translated_title:
+        display_title = translated_title
+        safe_zh_title = re.sub(r'[\\/*?:"<>|]', "_", translated_title).strip()
+        if safe_zh_title and safe_zh_title != safe_title:
+            renamed_video_path = OUTPUT_DIR / f"{safe_zh_title}_bilingual.mp4"
+            try:
+                original_cover = target_video_path.with_suffix(".jpg")
+                target_video_path.rename(renamed_video_path)
+                if original_cover.exists():
+                    original_cover.rename(renamed_video_path.with_suffix(".jpg"))
+                target_video_path = renamed_video_path
+                print(f"✅ 已重命名为中文标题: {target_video_path.name}", flush=True)
+            except OSError as rename_error:
+                print(f"⚠️ 重命名失败，沿用原文件名: {rename_error}", flush=True)
+
     print(f"✅ 处理完成: {target_video_path}", flush=True)
-    
+
     # 检查封面图是否已同步 (entry_cli.py 逻辑会将其放在视频同目录)
     target_cover_path = target_video_path.with_suffix(".jpg")
     if target_cover_path.exists():
@@ -250,8 +272,8 @@ def process_and_upload(video_id, video_url, video_title, config):
 
     # B 站投稿逻辑
     bili_tid = config.get('bili_tid', 171) # 171 为默认分区
-    # B 站标题带上双语前缀
-    bili_title = f"[双语字幕] {video_title}"
+    # B 站标题带上双语前缀（使用翻译后的中文标题）
+    bili_title = f"[双语字幕] {display_title}"
     bili_desc = f"原始视频: {video_url}\n使用 AI 自动生成双语字幕和假名标注。"
     
     bili_tags = config.get('tags', "日语学习,双语字幕,日本,日本新闻,日常")

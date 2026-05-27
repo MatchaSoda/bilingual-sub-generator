@@ -37,6 +37,36 @@ class GeminiSubtitleTranslator:
         
         return subtitle_segments
 
+    def translate_title(self, title: str, source_language: str) -> str:
+        if not title or not title.strip():
+            return title
+
+        print(f"🌐 Translating video title via Gemini ({self.model_name})...", flush=True)
+        prompt = (
+            f"Translate the following video title from {source_language} into {self.target_language}.\n"
+            "Return ONLY the translated title on a single line, with no quotes, labels, or explanation.\n"
+            "Keep it concise and natural as a video title.\n"
+            "Keep any text enclosed in 【】 brackets unchanged in its original language; do not translate the content inside 【】, and preserve the 【】 brackets themselves.\n\n"
+            f"Title: {title}"
+        )
+
+        maximum_api_retries = 4
+        for attempt_number in range(maximum_api_retries):
+            api_key = key_manager.get_next_available_api_key()
+            try:
+                raw_ai_response_text = self._call_gemini_api_with_retry(api_key, prompt)
+                return self._clean_translated_title(raw_ai_response_text)
+            except Exception as api_error:
+                if attempt_number == maximum_api_retries - 1:
+                    raise api_error
+                self._perform_exponential_backoff(attempt_number, api_error)
+
+        return title
+
+    def _clean_translated_title(self, raw_text: str) -> str:
+        first_line = next((line.strip() for line in raw_text.splitlines() if line.strip()), "")
+        return first_line.strip('"').strip("'").strip()
+
     def _construct_translation_prompt(self, source_lang, fix_source, text_content):
         instruction_for_fixing = (
             f"6. CRITICAL: Also provide the corrected {source_lang} source text if you detect ASR errors. Return format: '[index] corrected_source | translated_text'."

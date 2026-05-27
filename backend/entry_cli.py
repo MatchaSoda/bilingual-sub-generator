@@ -1,4 +1,5 @@
 import os
+import re
 import argparse
 import time
 import json
@@ -15,6 +16,9 @@ from engines.video_processor import FFmpegVideoProcessor
 from engines.segment_optimizer import SubtitleSegmentOptimizer
 from config.settings import DOWNLOADS_DIR
 
+def sanitize_for_filename(name):
+    return re.sub(r'[\\/*?:"<>|]', "_", name).strip()
+
 def run_subtitle_generation_pipeline():
     argument_parser = argparse.ArgumentParser(description="YouTube Bilingual Subtitle Generator")
     argument_parser.add_argument("video_url", help="YouTube video URL")
@@ -23,6 +27,7 @@ def run_subtitle_generation_pipeline():
     argument_parser.add_argument("--gemini-model", default="gemini-3.1-flash-lite", help="Gemini model identifier")
     argument_parser.add_argument("--enable-furigana", action="store_true", help="Enable Japanese furigana")
     argument_parser.add_argument("--fix-source-text", action="store_true", help="Enable AI source text correction")
+    argument_parser.add_argument("--translate-title", action="store_true", help="Translate the video title into the target language and use it for the default output filename")
     argument_parser.add_argument("--output", "-o", help="Custom output video path (including filename and extension)")
     
     argument_parser.add_argument("--font-size-main", type=int, default=90)
@@ -102,11 +107,29 @@ def run_subtitle_generation_pipeline():
         video_height=video_height
     )
 
+    output_filename_base = video_title
+    if pipeline_arguments.translate_title:
+        try:
+            title_translator = GeminiSubtitleTranslator(
+                target_language_code=pipeline_arguments.target_language,
+                ai_model_identifier=pipeline_arguments.gemini_model
+            )
+            translated_title = title_translator.translate_title(video_title, detected_source_language)
+        except Exception as title_translation_error:
+            print(f"⚠️ Title translation failed, keeping original: {title_translation_error}", flush=True)
+            translated_title = video_title
+
+        if not translated_title:
+            translated_title = video_title
+        # Emit a parseable line so downstream consumers (web UI, automation) can reuse the translated title.
+        print(f"🌐 Translated title: {translated_title}", flush=True)
+        output_filename_base = sanitize_for_filename(translated_title) or video_title
+
     if pipeline_arguments.output:
         final_video_output_path = Path(pipeline_arguments.output)
         final_video_output_path.parent.mkdir(parents=True, exist_ok=True)
     else:
-        final_video_output_path = DOWNLOADS_DIR / f"{video_title}_bilingual.mp4"
+        final_video_output_path = DOWNLOADS_DIR / f"{output_filename_base}_bilingual.mp4"
 
     video_processor.hardcode_subtitles_into_video(
         downloaded_media_info['video_path'], 

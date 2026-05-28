@@ -46,7 +46,7 @@ class GeminiSubtitleTranslator:
             f"Translate the following video title from {source_language} into {self.target_language}.\n"
             "Return ONLY the translated title on a single line, with no quotes, labels, or explanation.\n"
             "Keep it concise and natural as a video title.\n"
-            "Keep any text enclosed in 【】 brackets unchanged in its original language; do not translate the content inside 【】, and preserve the 【】 brackets themselves.\n\n"
+            "If text enclosed in 【】 brackets is a fixed show name or program segment name (e.g. 【ゲーム実況】, 【雑談】, 【#みんなのギモン】, 【きょうの1日】, 【なるほどッ！】), keep it unchanged in its original language. If it is just a generic tag, category, or keyword, translate it normally. In either case, preserve the 【】 brackets themselves.\n\n"
             f"Title: {title}"
         )
 

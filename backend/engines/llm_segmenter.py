@@ -161,7 +161,13 @@ class LLMSubtitleSegmenter:
         # the model marked — two sentences should never share one cue.
         sentence_cuts = {index + 1 for index in range(len(words) - 1)
                          if words[index]["word"] and words[index]["word"][-1] in SENTENCE_FINAL}
-        boundaries = sorted(set(boundaries) | sentence_cuts)
+        # Always break at audible pauses derived directly from word timestamps.
+        # We can't trust the model to echo back the ⏸ hints — some models silently
+        # strip them, which would otherwise lose the pause information entirely
+        # (e.g. a 10-second silent gap winding up inside a single cue).
+        pause_cuts = {index + 1 for index in range(len(words) - 1)
+                      if words[index + 1]["start"] - words[index]["end"] >= PAUSE_HINT_SECONDS}
+        boundaries = sorted(set(boundaries) | sentence_cuts | pause_cuts)
 
         cues = []
         previous = 0
@@ -227,12 +233,11 @@ class LLMSubtitleSegmenter:
                 time.sleep(2 ** (attempt_number + 1))
 
     def _marker_offsets_to_word_indices(self, marked_text, original_text, words):
-        """Validate verbatim match and map marker positions to word boundaries.
-
-        Both the model's break markers (│) and the injected pause hints (⏸) are
-        treated as cut points: a pause is a real boundary in the audio, so we break
-        there even when the model declined to add its own marker. Returns a sorted
-        list of word indices to cut before, or None if the model altered the text."""
+        """Validate verbatim match and map the model's break markers (│) to word
+        boundaries. Pause cuts are computed deterministically from word timestamps in
+        the caller, so we do not rely on the model echoing back the ⏸ hints (some
+        models silently strip them). Returns a sorted list of word indices to cut
+        before, or None if the model altered the text."""
         stripped = marked_text.replace(BREAK_MARKER, "").replace(PAUSE_HINT, "")
         # Tolerate a leading/trailing code fence or stray whitespace only.
         stripped = stripped.strip()
@@ -251,8 +256,10 @@ class LLMSubtitleSegmenter:
         marker_offsets = []
         char_count = 0
         for character in marked_text.strip():
-            if character == BREAK_MARKER or character == PAUSE_HINT:
+            if character == BREAK_MARKER:
                 marker_offsets.append(char_count)
+            elif character == PAUSE_HINT:
+                continue  # injected hint, not a cut on its own (pauses are deterministic)
             else:
                 char_count += 1
 

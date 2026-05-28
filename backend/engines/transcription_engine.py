@@ -15,10 +15,17 @@ class AudioTranscriptionEngine:
         print(f"👂 Transcribing: {audio_file_path}", flush=True)
         
         raw_segments_generator, transcription_info = self.whisper_model.transcribe(
-            audio_file_path, 
-            beam_size=5, 
+            audio_file_path,
+            beam_size=5,
             language=specified_language,
-            word_timestamps=True 
+            word_timestamps=True,
+            # Skip silent regions: whisper hallucinates most heavily on silence/non-speech,
+            # so VAD prevents the "junk text in quiet sections" failure mode directly.
+            vad_filter=True,
+            # Don't feed prior output back as context. Default True causes whisper to be
+            # primed by its own (possibly wrong) previous segment, which produces the
+            # "same sentence repeated 4 times" looping we observed on news clips.
+            condition_on_previous_text=False,
         )
         
         print(f"✅ Detected language: {transcription_info.language} (prob: {transcription_info.language_probability:.2f})", flush=True)

@@ -30,6 +30,7 @@ class JobExecutionManager:
             "--whisper-model", request_parameters.whisper_model, 
             "--gemini-model", request_parameters.gemini_model,
             "--target-language", request_parameters.target_language_code,
+            "--segment-mode", request_parameters.segment_mode,
             "--font-size-main", str(request_parameters.font_size_main),
             "--main-bottom", str(request_parameters.main_subtitle_bottom_margin),
             "--font-alpha", str(request_parameters.main_font_opacity),

@@ -8,6 +8,7 @@ class SubtitleRequest(BaseModel):
     target_language_code: str = Field("zh-CN", alias="target_lang")
     is_furigana_enabled: bool = Field(True, alias="enable_furigana")
     should_fix_source_text: bool = Field(False, alias="fix_source")
+    segment_mode: str = Field("rule", alias="segment_mode")
     
     font_size_main: int = 90
     main_subtitle_bottom_margin: float = Field(0.7, alias="main_bottom")

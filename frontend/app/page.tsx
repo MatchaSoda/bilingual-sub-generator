@@ -33,6 +33,7 @@ const DEFAULT_FORM = {
   translation_model: 'gemini-3-flash-preview',
   enable_furigana: true,
   fix_source: false,
+  segment_mode: 'rule',
   target_lang: 'zh-CN',
   font_size_main: 90,
   main_bottom: 0.7,

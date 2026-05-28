@@ -248,6 +248,24 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
                 <MenuItem value="gemini-2.5-flash">Gemini 2.5 Flash (稳定版)</MenuItem>
               </Select>
             </FormControl>
+
+            <FormControl fullWidth variant="filled">
+              <InputLabel sx={{ fontWeight: 900, textTransform: 'uppercase', fontSize: 10, letterSpacing: 1.5 }}>断句模式</InputLabel>
+              <Select
+                value={form.segment_mode || 'rule'}
+                onChange={(e)=>setForm({...form, segment_mode: e.target.value})}
+                disableUnderline
+                sx={{
+                borderRadius: 3,
+                  bgcolor: 'rgba(0,0,0,0.3)',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,0.4)' },
+                  fontWeight: 700
+                }}
+              >
+                <MenuItem value="rule">规则断句 (离线 · 默认)</MenuItem>
+                <MenuItem value="llm">LLM 语义断句 (Gemini · 更贴句意)</MenuItem>
+              </Select>
+            </FormControl>
           </Paper>
         </Grid>
       </Grid>

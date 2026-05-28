@@ -14,6 +14,7 @@ from engines.subtitle_translator import GeminiSubtitleTranslator
 from engines.subtitle_generator import AdvancedSubtitleScriptGenerator
 from engines.video_processor import FFmpegVideoProcessor
 from engines.segment_optimizer import SubtitleSegmentOptimizer
+from engines.llm_segmenter import LLMSubtitleSegmenter
 from config.settings import DOWNLOADS_DIR
 
 def sanitize_for_filename(name):
@@ -28,6 +29,7 @@ def run_subtitle_generation_pipeline():
     argument_parser.add_argument("--enable-furigana", action="store_true", help="Enable Japanese furigana")
     argument_parser.add_argument("--fix-source-text", action="store_true", help="Enable AI source text correction")
     argument_parser.add_argument("--translate-title", action="store_true", help="Translate the video title into the target language and use it for the default output filename")
+    argument_parser.add_argument("--segment-mode", choices=["rule", "llm"], default="rule", help="Subtitle segmentation: 'rule' (offline, MeCab + punctuation + pause) or 'llm' (Gemini semantic)")
     argument_parser.add_argument("--output", "-o", help="Custom output video path (including filename and extension)")
     
     argument_parser.add_argument("--font-size-main", type=int, default=90)
@@ -64,8 +66,15 @@ def run_subtitle_generation_pipeline():
     detected_source_language = transcription_results['language']
     print(f"✅ Transcription complete. Detected language: {detected_source_language}", flush=True)
 
-    segment_optimizer = SubtitleSegmentOptimizer(maximum_characters_per_line=25) 
-    refined_subtitle_segments = segment_optimizer.split_long_segments_using_word_timestamps(transcription_results['segments'])
+    if pipeline_arguments.segment_mode == "llm":
+        subtitle_segmenter = LLMSubtitleSegmenter(maximum_characters_per_line=25)
+        print(f"✂️ Segmentation mode: LLM (semantic, {subtitle_segmenter.model_name})", flush=True)
+    else:
+        print("✂️ Segmentation mode: rule (offline)", flush=True)
+        subtitle_segmenter = SubtitleSegmentOptimizer(maximum_characters_per_line=25)
+    refined_subtitle_segments = subtitle_segmenter.segment(
+        transcription_results['segments'], source_language=detected_source_language
+    )
 
     translation_cache_file = DOWNLOADS_DIR / f"{video_title}.translated.json"
     if translation_cache_file.exists():

@@ -274,7 +274,7 @@ def process_and_upload(video_id, video_url, video_title, config):
     # B 站投稿逻辑
     bili_tid = config.get('bili_tid', 171) # 171 为默认分区
     # B 站标题带上双语前缀（使用翻译后的中文标题）
-    bili_title = f"[双语字幕] {display_title}"
+    bili_title = f"【双语字幕】{display_title}"
     bili_desc = f"原始视频: {video_url}\n使用 AI 自动生成双语字幕和假名标注。"
     
     bili_tags = config.get('tags', "日语学习,双语字幕,日本,日本新闻,日常")

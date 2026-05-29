@@ -225,7 +225,8 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
                 <MenuItem value="tiny">Tiny (极致速度)</MenuItem>
                 <MenuItem value="small">Small (性能平衡)</MenuItem>
                 <MenuItem value="medium">Medium (高精准度)</MenuItem>
-                <MenuItem value="large-v3">Large-V3 (最高品质)</MenuItem>
+                <MenuItem value="large-v3-turbo">Large-V3-Turbo (推荐·快且标点完整)</MenuItem>
+                <MenuItem value="large-v3">Large-V3 (最高品质·日语易缺标点)</MenuItem>
               </Select>
             </FormControl>
 

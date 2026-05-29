@@ -29,7 +29,7 @@ import SettingsPanel from './components/SettingsPanel';
 
 const DEFAULT_FORM = {
   url: '',
-  model: 'large-v3',
+  model: 'large-v3-turbo',
   translation_model: 'gemini-3-flash-preview',
   enable_furigana: true,
   fix_source: false,

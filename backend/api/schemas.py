@@ -3,7 +3,7 @@ from typing import Optional
 
 class SubtitleRequest(BaseModel):
     video_url: str = Field(..., alias="url")
-    whisper_model: str = Field("large-v3", alias="model")
+    whisper_model: str = Field("large-v3-turbo", alias="model")
     gemini_model: str = Field("gemini-3.1-flash-lite", alias="translation_model")
     target_language_code: str = Field("zh-CN", alias="target_lang")
     is_furigana_enabled: bool = Field(True, alias="enable_furigana")

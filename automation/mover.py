@@ -211,7 +211,7 @@ def process_and_upload(video_id, video_url, video_title, config):
         "--enable-furigana",
         "--translate-title",
         "--segment-mode", "llm",
-        "--whisper-model", "large-v3",
+        "--whisper-model", "large-v3-turbo",
         "--output", str(target_video_path)
     ]
     

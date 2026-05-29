@@ -91,22 +91,51 @@ class SubtitleSegmentOptimizer:
         Boundaries are placed after sentence-final punctuation or after a long
         silent gap. Each block is segmented independently, which both bounds the
         DP size and guarantees we always break at these strong boundaries.
+
+        A pause break is only honored when it lands on a MeCab morpheme boundary.
+        Whisper's per-kana Japanese timestamps routinely inject a spurious gap
+        *inside* a word (e.g. 大|量, 時|計, 粗|大); forcing a hard block break there
+        would split a single word across two cues. When the pause falls mid-word we
+        keep both words in the same block and let the DP (which forbids mid-morpheme
+        cuts) decide. Sentence-final punctuation is always a valid boundary.
         """
+        morpheme_boundaries = self.morpheme_boundary_offsets(words)
+
         blocks = []
         current = []
+        char_offset = 0
         for index, word in enumerate(words):
             current.append(word)
+            char_offset += len(word["word"])
             is_last = index == len(words) - 1
             if is_last:
                 break
             ends_sentence = word["word"][-1] in SENTENCE_FINAL
             gap = words[index + 1]["start"] - word["end"]
-            if ends_sentence or gap >= PAUSE_HARD_BREAK_SECONDS:
+            pause_at_word_boundary = (
+                gap >= PAUSE_HARD_BREAK_SECONDS
+                and (morpheme_boundaries is None or char_offset in morpheme_boundaries)
+            )
+            if ends_sentence or pause_at_word_boundary:
                 blocks.append(current)
                 current = []
         if current:
             blocks.append(current)
         return blocks
+
+    def morpheme_boundary_offsets(self, words):
+        """Character offsets (over the concatenated word text) that fall on a MeCab
+        morpheme boundary, as a set. Returns None when MeCab is unavailable, in
+        which case callers treat every position as a valid boundary (legacy
+        behaviour). Offset 0 and the total length are always boundaries.
+        """
+        spans = self._mecab_morpheme_spans("".join(w["word"] for w in words))
+        if not spans:
+            return None
+        offsets = {0}
+        for _start, end, _pos in spans:
+            offsets.add(end)
+        return offsets
 
     def _segment_word_block(self, words):
         """DP segmentation of a single block of word tokens into cues."""

@@ -74,6 +74,72 @@ class TestRuleSegmenter(unittest.TestCase):
         # DP should balance (e.g. 6/6) rather than leave a length-2 tail.
         self.assertTrue(min(lengths) >= 3, lengths)
 
+    def test_pause_inside_morpheme_does_not_split_word(self):
+        # Whisper sometimes injects a spurious silent gap *inside* a single word
+        # (its per-kana JP timestamps are unreliable). A pause that lands mid-word
+        # must NOT force a hard break — 大量 must stay whole. Requires MeCab.
+        if self.opt._tagger is None:
+            self.skipTest("MeCab unavailable; morpheme protection is a no-op")
+        tokens = ["大", "量", "の", "ゴミ"]
+        # 1.2s of (spurious) silence before 量, i.e. between 大 and 量.
+        seg = {"start": 0.0, "end": 5.0, "text": "".join(tokens),
+               "words": make_words(tokens, gaps={1: 1.2})}
+        cues = self.opt.segment([seg])
+        self.assertTrue(any("大量" in c["text"] for c in cues),
+                        f"大量 was split mid-word: {cues}")
+
+    def test_pause_at_word_boundary_still_breaks(self):
+        # A pause that *does* fall on a real morpheme boundary must still break,
+        # so the morpheme gate doesn't suppress legitimate sentence breaks.
+        tokens = ["ゴミ", "数え", "切れ", "ない"]
+        # 1.2s silence between ゴミ (noun) and 数え (verb) -> a real word boundary.
+        seg = {"start": 0.0, "end": 5.0, "text": "".join(tokens),
+               "words": make_words(tokens, gaps={1: 1.2})}
+        cues = self.opt.segment([seg])
+        self.assertGreaterEqual(len(cues), 2, cues)
+        self.assertTrue(any(c["text"].endswith("ゴミ") for c in cues), cues)
+
+
+class TestLLMFallbackSegmentation(unittest.TestCase):
+    """The LLM segmenter falls back to rules when the model's response fails
+    verbatim validation (common with punctuation-poor large-v3 output). That
+    fallback must still honor pauses as hard breaks, not glue sentences together."""
+
+    def test_failed_llm_response_still_breaks_at_pause(self):
+        from engines.llm_segmenter import LLMSubtitleSegmenter
+        seg = LLMSubtitleSegmenter(maximum_characters_per_line=10)
+        # Force the validation-fail path: return text the model "altered" so
+        # stripped != original -> None -> _rule_fallback_for_words.
+        seg._request_markers = lambda hinted, source_language=None: hinted + "。"
+        tokens = ["前半", "の", "話", "後半", "の", "話"]
+        # 1.5s silence before 後半 (index 3) -> a long audible pause.
+        whisper_seg = {"start": 0.0, "end": 6.0, "text": "".join(tokens),
+                       "words": make_words(tokens, gaps={3: 1.5})}
+        cues = seg.segment([whisper_seg])
+        self.assertGreaterEqual(len(cues), 2, cues)
+        # The two sentences must not be glued across the pause.
+        self.assertFalse(any("前半" in c["text"] and "後半" in c["text"] for c in cues),
+                         f"sentences glued across pause: {cues}")
+
+    def test_llm_break_marker_inside_morpheme_is_rejected(self):
+        # The model's own break marker can land mid-word once snapped to the
+        # per-kana token grid (e.g. between 大 and 量). Such a cut must be dropped
+        # so 大量 is never split. This is the LLM *success* path. Requires MeCab.
+        from engines.llm_segmenter import LLMSubtitleSegmenter, BREAK_MARKER
+        seg = LLMSubtitleSegmenter(maximum_characters_per_line=10)
+        if seg.rule_fallback._tagger is None:
+            self.skipTest("MeCab unavailable; morpheme gate is a no-op")
+        # Model returns a valid (verbatim) response but inserts a break inside 大量.
+        seg._request_markers = (
+            lambda hinted, source_language=None: hinted.replace("大量", "大" + BREAK_MARKER + "量", 1)
+        )
+        tokens = ["大", "量", "の", "ゴミ"]
+        whisper_seg = {"start": 0.0, "end": 4.0, "text": "".join(tokens),
+                       "words": make_words(tokens)}
+        cues = seg.segment([whisper_seg])
+        self.assertTrue(any("大量" in c["text"] for c in cues),
+                        f"大量 was split by an LLM marker: {cues}")
+
 
 if __name__ == "__main__":
     unittest.main()

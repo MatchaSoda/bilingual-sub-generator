@@ -199,21 +199,28 @@ def upload_to_bilibili(video_path, cover_path, title, tid, description, tags):
         print(f"  错误详情: {error_msg}")
         return False
 
-def process_and_upload(video_id, video_url, video_title, config):
+def process_and_upload(video_id, video_url, video_title, config, processing=None):
     print(f"\n🚀 开始处理: {video_title} ({video_id})")
-    
+
     # 将非法字符替换为下划线，保留标题长度和可识别性
     safe_title = re.sub(r'[\\/*?:"<>|]', "_", video_title)
     target_video_path = OUTPUT_DIR / f"{safe_title}_bilingual.mp4"
-    
+
+    # 处理参数来自 config.json 的 "processing" 段（缺省时沿用以下默认值，等同旧行为）。
+    proc = processing or {}
     cli_cmd = [
         str(PYTHON_PATH), str(CLI_PATH), video_url,
-        "--enable-furigana",
-        "--translate-title",
-        "--segment-mode", "llm",
-        "--whisper-model", "large-v3-turbo",
-        "--output", str(target_video_path)
+        "--segment-mode", proc.get("segment_mode", "llm"),
+        "--whisper-model", proc.get("whisper_model", "large-v3-turbo"),
+        "--gemini-model", proc.get("gemini_model", "gemini-3.1-flash-lite"),
+        "--output", str(target_video_path),
     ]
+    if proc.get("enable_furigana", True):
+        cli_cmd.append("--enable-furigana")
+    if proc.get("translate_title", True):
+        cli_cmd.append("--translate-title")
+    if proc.get("fix_source_text", False):
+        cli_cmd.append("--fix-source-text")
     
     print(f"执行命令: {' '.join(cli_cmd)}")
     
@@ -328,7 +335,7 @@ def main():
 
                     if is_match:
                         print(f"should process: {entry['title']}")
-                        if process_and_upload(entry['id'], entry['url'], entry['title'], channel):
+                        if process_and_upload(entry['id'], entry['url'], entry['title'], channel, config.get('processing', {})):
                             history.add(entry['id'])
                             save_history(history)
                     else:

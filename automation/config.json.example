@@ -9,5 +9,13 @@
       "tags": "日语学习,双语字幕,日本,日本新闻,日常"
     }
   ],
-  "check_interval_seconds": 1800
+  "check_interval_seconds": 1800,
+  "processing": {
+    "whisper_model": "large-v3-turbo",
+    "segment_mode": "llm",
+    "gemini_model": "gemini-3.1-flash-lite",
+    "enable_furigana": true,
+    "translate_title": true,
+    "fix_source_text": false
+  }
 }

@@ -123,18 +123,27 @@ class LLMSubtitleSegmenter:
 
     def _build_batches(self, words):
         """Group words into batches, breaking only at natural points so a batch
-        boundary is also a sensible cue boundary."""
+        boundary is also a sensible cue boundary. A batch boundary becomes a cue
+        boundary, so a pause split is only allowed on a morpheme boundary (same
+        reason as pause_cuts) — never mid-word."""
+        morpheme_boundaries = self.rule_fallback.morpheme_boundary_offsets(words)
         batches = []
         current = []
         current_chars = 0
+        char_offset = 0
         for index, word in enumerate(words):
             current.append(word)
             current_chars += len(word["word"])
+            char_offset += len(word["word"])
             if index == len(words) - 1:
                 break
             ends_sentence = word["word"][-1] in SENTENCE_FINAL
             gap = words[index + 1]["start"] - word["end"]
-            at_natural_break = ends_sentence or gap >= PAUSE_HARD_BREAK_SECONDS
+            pause_at_word_boundary = (
+                gap >= PAUSE_HARD_BREAK_SECONDS
+                and (morpheme_boundaries is None or char_offset in morpheme_boundaries)
+            )
+            at_natural_break = ends_sentence or pause_at_word_boundary
             if current_chars >= BATCH_CHAR_BUDGET and at_natural_break:
                 batches.append(current)
                 current = []
@@ -165,9 +174,30 @@ class LLMSubtitleSegmenter:
         # We can't trust the model to echo back the ⏸ hints — some models silently
         # strip them, which would otherwise lose the pause information entirely
         # (e.g. a 10-second silent gap winding up inside a single cue).
-        pause_cuts = {index + 1 for index in range(len(words) - 1)
-                      if words[index + 1]["start"] - words[index]["end"] >= PAUSE_HINT_SECONDS}
-        boundaries = sorted(set(boundaries) | sentence_cuts | pause_cuts)
+        # But only when the pause lands on a morpheme boundary: Whisper often injects
+        # a spurious gap inside a word (大|量, 時|計), and cutting there would split it.
+        morpheme_boundaries = self.rule_fallback.morpheme_boundary_offsets(words)
+        prefix = 0
+        word_end_offsets = []
+        for word in words:
+            prefix += len(word["word"])
+            word_end_offsets.append(prefix)
+        pause_cuts = {
+            index + 1 for index in range(len(words) - 1)
+            if words[index + 1]["start"] - words[index]["end"] >= PAUSE_HINT_SECONDS
+            and (morpheme_boundaries is None or word_end_offsets[index] in morpheme_boundaries)
+        }
+        combined = set(boundaries) | sentence_cuts | pause_cuts
+        # Every cut must land on a morpheme boundary. The model's own break markers
+        # (and their nearest-token snapping) can fall *inside* a word — words here are
+        # per-kana for Japanese, so a marker near 大量 can snap to 大|量 and split it.
+        # Sentence-final cuts are always valid (punctuation is its own morpheme).
+        if morpheme_boundaries is not None:
+            combined = {
+                cut for cut in combined
+                if cut in sentence_cuts or word_end_offsets[cut - 1] in morpheme_boundaries
+            }
+        boundaries = sorted(combined)
 
         cues = []
         previous = 0

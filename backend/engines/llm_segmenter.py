@@ -272,4 +272,13 @@ class LLMSubtitleSegmenter:
         return sorted(cut_indices)
 
     def _rule_fallback_for_words(self, words):
-        return self.rule_fallback._segment_word_block(words)
+        # Split at pauses / sentence-final punctuation first, then DP each block —
+        # rather than running one length-only DP over the whole batch. A single-block
+        # DP only sees a pause as a weak soft score (capped at +30) that length
+        # balancing overrides, so a failed/invalid LLM response would glue separate
+        # sentences across long silent gaps into one cue. _build_blocks forces the
+        # hard breaks that the LLM success path gets from pause_cuts/sentence_cuts.
+        cues = []
+        for block in self.rule_fallback._build_blocks(words):
+            cues.extend(self.rule_fallback._segment_word_block(block))
+        return cues

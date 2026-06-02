@@ -41,19 +41,21 @@ def flatten_words(whisper_segments):
     the whole segment, so non-speech / word-less segments are never dropped.
     """
     words = []
-    for segment in whisper_segments:
+    for segment_index, segment in enumerate(whisper_segments):
         segment_words = segment.get("words") or []
         emitted = False
         for word in segment_words:
             text = (word.get("word") or "").strip()
             if not text:
                 continue
-            words.append({"word": text, "start": word["start"], "end": word["end"]})
+            words.append({"word": text, "start": word["start"], "end": word["end"],
+                          "segment": segment_index})
             emitted = True
         if not emitted:
             text = (segment.get("text") or "").strip()
             if text:
-                words.append({"word": text, "start": segment["start"], "end": segment["end"]})
+                words.append({"word": text, "start": segment["start"], "end": segment["end"],
+                              "segment": segment_index})
     return words
 
 
@@ -88,16 +90,25 @@ class SubtitleSegmentOptimizer:
     def _build_blocks(self, words):
         """Split the flat word stream into independent blocks.
 
-        Boundaries are placed after sentence-final punctuation or after a long
-        silent gap. Each block is segmented independently, which both bounds the
-        DP size and guarantees we always break at these strong boundaries.
+        Boundaries are placed at whisper segment edges, after sentence-final
+        punctuation, or after a long silent gap. Each block is segmented
+        independently, which both bounds the DP size and guarantees we always
+        break at these strong boundaries.
 
-        A pause break is only honored when it lands on a MeCab morpheme boundary.
-        Whisper's per-kana Japanese timestamps routinely inject a spurious gap
-        *inside* a word (e.g. 大|量, 時|計, 粗|大); forcing a hard block break there
-        would split a single word across two cues. When the pause falls mid-word we
-        keep both words in the same block and let the DP (which forbids mid-morpheme
-        cuts) decide. Sentence-final punctuation is always a valid boundary.
+        Whisper already groups speech into phrase-level segments, so we treat
+        every segment edge as a block boundary and only re-cut a segment with the
+        DP when it exceeds the length limit. This is deliberate: concatenating all
+        segments and reflowing them to a fixed width is what split phrases
+        mid-word (e.g. なるほど|のコーナー, 今すぐ|できる, なってき|ました) — every one
+        of those was a clean whisper segment edge we had thrown away.
+
+        Segment-edge and pause breaks are only honored when they land on a MeCab
+        morpheme boundary. Whisper's per-kana Japanese timestamps routinely inject
+        a spurious gap *inside* a word (e.g. 大|量, 時|計, 粗|大), and a segment can
+        likewise end mid-word on that grid; forcing a hard block break there would
+        split a single word across two cues. When the boundary falls mid-word we
+        keep both words in the same block and let the DP (which forbids
+        mid-morpheme cuts) decide. Sentence-final punctuation is always valid.
         """
         morpheme_boundaries = self.morpheme_boundary_offsets(words)
 
@@ -110,13 +121,16 @@ class SubtitleSegmentOptimizer:
             is_last = index == len(words) - 1
             if is_last:
                 break
+            on_morpheme_boundary = (
+                morpheme_boundaries is None or char_offset in morpheme_boundaries
+            )
             ends_sentence = word["word"][-1] in SENTENCE_FINAL
             gap = words[index + 1]["start"] - word["end"]
-            pause_at_word_boundary = (
-                gap >= PAUSE_HARD_BREAK_SECONDS
-                and (morpheme_boundaries is None or char_offset in morpheme_boundaries)
+            pause_at_word_boundary = gap >= PAUSE_HARD_BREAK_SECONDS and on_morpheme_boundary
+            segment_boundary = (
+                word["segment"] != words[index + 1]["segment"] and on_morpheme_boundary
             )
-            if ends_sentence or pause_at_word_boundary:
+            if ends_sentence or pause_at_word_boundary or segment_boundary:
                 blocks.append(current)
                 current = []
         if current:

@@ -88,6 +88,25 @@ class TestRuleSegmenter(unittest.TestCase):
         self.assertTrue(any("大量" in c["text"] for c in cues),
                         f"大量 was split mid-word: {cues}")
 
+    def test_whisper_segment_boundary_is_respected(self):
+        # Two adjacent whisper segments with no pause and no punctuation between
+        # them. Each is within the length limit. The optimizer must keep them as
+        # separate cues instead of concatenating and reflowing to a fixed width
+        # (which used to split phrases mid-word, e.g. 今すぐ|できる). Requires the
+        # segment boundary to be a morpheme boundary, which "今すぐできる"|"備えに…"
+        # is, so the test holds both with and without MeCab.
+        words_a = make_words(["今", "すぐ", "できる"])
+        words_b = make_words(["備え", "について"])
+        offset = words_a[-1]["end"]
+        words_b = [{"word": w["word"], "start": round(w["start"] + offset, 2),
+                    "end": round(w["end"] + offset, 2)} for w in words_b]
+        seg_a = {"start": words_a[0]["start"], "end": words_a[-1]["end"],
+                 "text": "今すぐできる", "words": words_a}
+        seg_b = {"start": words_b[0]["start"], "end": words_b[-1]["end"],
+                 "text": "備えについて", "words": words_b}
+        cues = self.opt.segment([seg_a, seg_b])
+        self.assertEqual([c["text"] for c in cues], ["今すぐできる", "備えについて"], cues)
+
     def test_pause_at_word_boundary_still_breaks(self):
         # A pause that *does* fall on a real morpheme boundary must still break,
         # so the morpheme gate doesn't suppress legitimate sentence breaks.

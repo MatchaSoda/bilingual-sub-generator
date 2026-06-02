@@ -44,7 +44,9 @@ class LLMSubtitleSegmenter:
         self.model_name = model_name or SEGMENT_MODEL
         self.max_chars = maximum_characters_per_line
         self.target_chars = max(8, round(maximum_characters_per_line * 0.8))
-        # Cues shorter than this are merged into a neighbour (see _merge_short_cues).
+        # Length below which the model is told not to isolate a fragment as its
+        # own cue (a prompt hint only; we no longer merge short cues afterwards,
+        # since whisper's segment edges are honored as cue boundaries).
         self.min_chars = max(6, round(maximum_characters_per_line * 0.32))
         self.rule_fallback = SubtitleSegmentOptimizer(maximum_characters_per_line)
 
@@ -57,24 +59,20 @@ class LLMSubtitleSegmenter:
         for batch in self._build_batches(words):
             cues.extend(self._segment_batch(batch, source_language))
         cues = hard_split_overlong_cues(cues, self.max_chars)
-        return self._merge_short_cues(cues)
+        return self._attach_orphan_punctuation(cues)
 
-    def _merge_short_cues(self, cues):
-        """Absorb tiny fragments (e.g. an isolated "専門家は、" or a lone "、") into a
-        neighbour, while respecting timing.
+    def _attach_orphan_punctuation(self, cues):
+        """Glue a punctuation-only cue (a lone "、" or "。") onto its neighbour.
 
-        News subtitles read better without 5-7 char dangling cues, but a short
-        utterance that is genuinely its own sentence — bounded by a pause or by
-        sentence-final punctuation — must stay separate. So a merge is blocked when
-        the two cues are separated by a real silent gap (>= PAUSE_HINT_SECONDS) or by
-        sentence-final punctuation.
+        We deliberately do NOT merge short *text* fragments: now that whisper's
+        segment edges are honored as hard cue boundaries, a short cue is a
+        complete whisper phrase and should stay on its own. The only thing worth
+        fixing is orphan punctuation, which adds no visual width and clearly
+        belongs to the clause it follows.
         """
         if not cues:
             return cues
 
-        # Pass 1: punctuation-only cues always glue onto the preceding cue. A lone
-        # "、" or "。" belongs to the clause it follows; it adds no visual width, so
-        # this ignores the length cap.
         glued = []
         for cue in cues:
             if glued and self._is_punct_only(cue["text"]):
@@ -88,24 +86,7 @@ class LLMSubtitleSegmenter:
             glued[1] = {"start": head["start"], "end": nxt["end"],
                         "text": head["text"] + nxt["text"]}
             glued.pop(0)
-
-        # Pass 2: merge a short text fragment into its neighbour (either direction),
-        # but never across a pause or a sentence-final boundary.
-        merged = [glued[0]]
-        for cue in glued[1:]:
-            prev = merged[-1]
-            gap = cue["start"] - prev["end"]
-            blocked = (gap >= PAUSE_HINT_SECONDS
-                       or prev["text"][-1] in SENTENCE_FINAL
-                       or len(prev["text"]) + len(cue["text"]) > self.max_chars)
-            prev_short = len(prev["text"]) < self.min_chars
-            cur_short = len(cue["text"]) < self.min_chars
-            if (prev_short or cur_short) and not blocked:
-                merged[-1] = {"start": prev["start"], "end": cue["end"],
-                              "text": prev["text"] + cue["text"]}
-            else:
-                merged.append(cue)
-        return merged
+        return glued
 
     def _is_punct_only(self, text):
         return bool(text) and all(character in PUNCT_ONLY for character in text)
@@ -187,7 +168,17 @@ class LLMSubtitleSegmenter:
             if words[index + 1]["start"] - words[index]["end"] >= PAUSE_HINT_SECONDS
             and (morpheme_boundaries is None or word_end_offsets[index] in morpheme_boundaries)
         }
-        combined = set(boundaries) | sentence_cuts | pause_cuts
+        # Always break at whisper segment edges. Whisper groups speech into
+        # phrase-level segments; respecting them keeps the model from gluing two
+        # separate phrases into one cue (it may still add breaks *within* a
+        # segment). Gated on a morpheme boundary for the same reason as pauses: a
+        # segment can end mid-word on whisper's per-kana grid.
+        segment_cuts = {
+            index + 1 for index in range(len(words) - 1)
+            if words[index]["segment"] != words[index + 1]["segment"]
+            and (morpheme_boundaries is None or word_end_offsets[index] in morpheme_boundaries)
+        }
+        combined = set(boundaries) | sentence_cuts | pause_cuts | segment_cuts
         # Every cut must land on a morpheme boundary. The model's own break markers
         # (and their nearest-token snapping) can fall *inside* a word — words here are
         # per-kana for Japanese, so a marker near 大量 can snap to 大|量 and split it.

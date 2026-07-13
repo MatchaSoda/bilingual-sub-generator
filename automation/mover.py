@@ -73,17 +73,20 @@ def load_config():
         print(f"❌ 加载配置文件失败: {e}")
         exit(1)
 
-def get_video_list(channel_url):
-    """通过 yt-dlp --flat-playlist 快速获取频道最近 10 个视频的 id/title/url。
+def get_video_list(channel_url, playlist_items=10):
+    """通过 yt-dlp --flat-playlist 快速获取频道最近 playlist_items 个视频的 id/title/url。
 
     描述字段在频道页拿不到，按需通过 fetch_video_description 单独获取，
     这样可以避开 YouTube 的 PO token / JS challenge 慢路径。
+
+    flat-playlist 只解析频道列表页（网页 + InnerTube API 分页，每页约 30 条），
+    不触碰 player API / PO token，所以窗口开大只是多翻几页元数据，成本很低。
     """
     cookies_tmp = make_cookies_copy()
     try:
         cmd = [
             str(YTDLP_PATH), "--ignore-errors", "--flat-playlist",
-            "--playlist-items", "1-10",
+            "--playlist-items", f"1-{playlist_items}",
             "--print", "%(id)s|%(title)s|%(webpage_url)s",
         ]
         if cookies_tmp:
@@ -124,12 +127,15 @@ def get_video_list(channel_url):
             try: os.unlink(cookies_tmp)
             except OSError: pass
 
-def fetch_video_description(video_url):
+def fetch_video_description(video_url, throttle_seconds=0):
     """单独获取一个视频的描述（仅在 title 不匹配时调用）。
 
     用 --ignore-no-formats-error：YouTube 频道视频的 player API 在无头环境下常常返回
     LOGIN_REQUIRED 而拿不到 formats，但 description 是从 webpage HTML 解析的，加这个
     flag 让 yt-dlp 不要因为 formats 缺失就抛错，从而能落到 webpage fallback 拿到描述。
+
+    这是整条流程里最容易触发 YouTube 风控的重请求（每个视频单独打一次）。
+    throttle_seconds > 0 时，每次抓取后强制休眠，把连续描述请求拉开间隔，避免突发。
     """
     cookies_tmp = make_cookies_copy()
     try:
@@ -159,6 +165,9 @@ def fetch_video_description(video_url):
         if cookies_tmp:
             try: os.unlink(cookies_tmp)
             except OSError: pass
+        # 无论成功失败都休眠，保证两次描述请求之间至少间隔 throttle_seconds
+        if throttle_seconds:
+            time.sleep(throttle_seconds)
 
 def upload_to_bilibili(video_path, cover_path, title, tid, description, tags):
     """使用 biliup 投稿到 B 站"""
@@ -299,10 +308,20 @@ def main():
             config = load_config()
         except: pass
 
+        # 三个反爬 / 限流开关，均可在 config.json 里调整（缺省沿用保守默认值）：
+        #   playlist_items                   —— 每轮扫描频道最近多少个视频（窗口越大越能扛停机）
+        #   description_fetch_interval_seconds —— 相邻两次“拉描述”重请求之间的最小间隔（秒）
+        #   max_uploads_per_cycle            —— 每轮最多处理/投稿多少个视频（0 表示不限），
+        #                                        用于抑制停机恢复 / 首轮时的上传突发
+        playlist_items = config.get('playlist_items', 10)
+        desc_interval = config.get('description_fetch_interval_seconds', 0)
+        max_uploads = config.get('max_uploads_per_cycle', 0)
+        uploads_this_cycle = 0
+
         for channel in config['channels']:
             fetch_url = channel['url']
             print(f"\n🔍 扫描频道: {channel['name']} ({fetch_url})")
-            videos = get_video_list(fetch_url)
+            videos = get_video_list(fetch_url, playlist_items)
             print(f"📊 发现 {len(videos)} 个视频")
             
             for entry in videos:
@@ -324,7 +343,7 @@ def main():
                     else:
                         # title 没命中再去拿描述（每个 ~10s，所以放后面）
                         print(f"🔎 标题未命中，拉取描述: {title}")
-                        description = fetch_video_description(entry['url'])
+                        description = fetch_video_description(entry['url'], desc_interval)
                         description_lower = description.lower()
                         hit_exclude = next((ex for ex in excludes if ex in description_lower), None)
                         if hit_exclude:
@@ -334,7 +353,14 @@ def main():
                             is_match = keyword in description_lower
 
                     if is_match:
+                        # 命中但本轮上传已达上限：不入库、不处理，留到下一轮再处理，
+                        # 从而把停机恢复 / 首轮的一大批积压视频分摊到多轮里逐步消化。
+                        if max_uploads and uploads_this_cycle >= max_uploads:
+                            print(f"⏸️ 本轮处理已达上限 ({max_uploads})，推迟到下一轮: {entry['title']}")
+                            continue
                         print(f"should process: {entry['title']}")
+                        # 计入本轮配额（无论成功失败，重下载/上传都已发生）
+                        uploads_this_cycle += 1
                         if process_and_upload(entry['id'], entry['url'], entry['title'], channel, config.get('processing', {})):
                             history.add(entry['id'])
                             save_history(history)

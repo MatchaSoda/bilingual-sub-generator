@@ -10,6 +10,9 @@
     }
   ],
   "check_interval_seconds": 1800,
+  "playlist_items": 100,
+  "description_fetch_interval_seconds": 3,
+  "max_uploads_per_cycle": 3,
   "processing": {
     "whisper_model": "large-v3-turbo",
     "segment_mode": "llm",

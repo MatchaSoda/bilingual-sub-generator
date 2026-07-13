@@ -5,6 +5,7 @@ import subprocess
 import re
 import shutil
 import tempfile
+import fcntl
 from pathlib import Path
 
 # 项目根路径配置
@@ -53,9 +54,29 @@ def load_history():
     return set()
 
 def save_history(processed_ids):
+    """并发安全地写 history.json。
+
+    常驻服务和外部脚本（backfill.py）可能同时写这个文件，直接覆盖会丢条目。
+    这里用文件锁串行化写入，并在锁内先把磁盘上已有条目并进来（避免覆盖对方新增的），
+    最后原子替换落盘。processed_ids 会被就地更新为并集，保持内存与磁盘一致。
+    """
     try:
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(list(processed_ids), f, ensure_ascii=False, indent=2)
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = HISTORY_FILE.with_suffix('.lock')
+        with open(lock_path, 'w') as lock_f:
+            fcntl.flock(lock_f, fcntl.LOCK_EX)
+            # 锁内重新读盘并合并，吸收外部（如 backfill.py）追加的条目
+            if HISTORY_FILE.exists():
+                try:
+                    with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                        processed_ids |= set(json.load(f))
+                except Exception:
+                    pass
+            fd, tmp_path = tempfile.mkstemp(dir=str(HISTORY_FILE.parent),
+                                            prefix='.history-', suffix='.tmp')
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(list(processed_ids), f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, HISTORY_FILE)
         print(f"💾 历史记录已更新: {HISTORY_FILE}")
     except Exception as e:
         print(f"❌ 无法保存历史记录: {e}")

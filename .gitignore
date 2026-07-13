@@ -79,6 +79,7 @@ backend/downloads/
 automation/data/
 automation/config.json
 automation/history.json
+automation/history.lock
 automation/cookies.json
 cookies.txt
 

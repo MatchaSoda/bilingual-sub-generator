@@ -30,6 +30,7 @@ def run_subtitle_generation_pipeline():
     argument_parser.add_argument("--fix-source-text", action="store_true", help="Enable AI source text correction")
     argument_parser.add_argument("--translate-title", action="store_true", help="Translate the video title into the target language and use it for the default output filename")
     argument_parser.add_argument("--segment-mode", choices=["rule", "llm"], default="rule", help="Subtitle segmentation: 'rule' (offline, MeCab + punctuation + pause) or 'llm' (Gemini semantic)")
+    argument_parser.add_argument("--translation-batch-size", type=int, default=100, help="How many subtitle segments to translate per Gemini call. Larger = better cross-line context. Output tokens are rarely the limit (model allows 64k); the real ceilings are the request timeout and the model occasionally dropping a line in very large batches.")
     argument_parser.add_argument("--output", "-o", help="Custom output video path (including filename and extension)")
     
     argument_parser.add_argument("--font-size-main", type=int, default=90)
@@ -87,7 +88,7 @@ def run_subtitle_generation_pipeline():
             ai_model_identifier=pipeline_arguments.gemini_model
         )
         final_subtitle_segments = refined_subtitle_segments
-        processing_batch_size = 20
+        processing_batch_size = max(1, pipeline_arguments.translation_batch_size)
         for batch_start_index in range(0, len(final_subtitle_segments), processing_batch_size):
             current_batch = final_subtitle_segments[batch_start_index:batch_start_index + processing_batch_size]
             translator.translate_batch_of_subtitle_segments(

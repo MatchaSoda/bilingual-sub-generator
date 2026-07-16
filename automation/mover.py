@@ -243,6 +243,7 @@ def process_and_upload(video_id, video_url, video_title, config, processing=None
         "--segment-mode", proc.get("segment_mode", "llm"),
         "--whisper-model", proc.get("whisper_model", "large-v3-turbo"),
         "--gemini-model", proc.get("gemini_model", "gemini-3.1-flash-lite"),
+        "--translation-batch-size", str(proc.get("translation_batch_size", 100)),
         "--output", str(target_video_path),
     ]
     if proc.get("enable_furigana", True):

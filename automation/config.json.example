@@ -17,6 +17,7 @@
     "whisper_model": "large-v3-turbo",
     "segment_mode": "llm",
     "gemini_model": "gemini-3.1-flash-lite",
+    "translation_batch_size": 200,
     "enable_furigana": true,
     "translate_title": true,
     "fix_source_text": false

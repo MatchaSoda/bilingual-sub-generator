@@ -340,12 +340,22 @@ def main():
         uploads_this_cycle = 0
 
         for channel in config['channels']:
+            # 本轮已达上限：后续频道一律不再扫描，避免无谓的列表 / 描述请求。
+            if max_uploads and uploads_this_cycle >= max_uploads:
+                print(f"⏸️ 本轮处理已达上限 ({max_uploads})，跳过剩余频道，等待下一轮")
+                break
             fetch_url = channel['url']
             print(f"\n🔍 扫描频道: {channel['name']} ({fetch_url})")
             videos = get_video_list(fetch_url, playlist_items)
             print(f"📊 发现 {len(videos)} 个视频")
-            
+
             for entry in videos:
+                # 本轮已达上限：立刻停止遍历，剩余视频（含还没拉描述的）留到下一轮。
+                # 关键：把上限检查提到“拉描述”之前，避免已经不处理了还去打 YouTube 描述
+                # 接口——那是整条流程里最容易触发风控、且每个都要十几秒的重请求。
+                if max_uploads and uploads_this_cycle >= max_uploads:
+                    print(f"⏸️ 本轮处理已达上限 ({max_uploads})，停止扫描剩余视频，留到下一轮")
+                    break
                 if entry['id'] not in history:
                     keyword = channel.get('keyword', '').lower()
                     excludes = [e.lower() for e in channel.get('exclude', []) if e]
@@ -374,11 +384,6 @@ def main():
                             is_match = keyword in description_lower
 
                     if is_match:
-                        # 命中但本轮上传已达上限：不入库、不处理，留到下一轮再处理，
-                        # 从而把停机恢复 / 首轮的一大批积压视频分摊到多轮里逐步消化。
-                        if max_uploads and uploads_this_cycle >= max_uploads:
-                            print(f"⏸️ 本轮处理已达上限 ({max_uploads})，推迟到下一轮: {entry['title']}")
-                            continue
                         print(f"should process: {entry['title']}")
                         # 计入本轮配额（无论成功失败，重下载/上传都已发生）
                         uploads_this_cycle += 1

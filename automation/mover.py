@@ -240,7 +240,7 @@ def process_and_upload(video_id, video_url, video_title, config, processing=None
     proc = processing or {}
     cli_cmd = [
         str(PYTHON_PATH), str(CLI_PATH), video_url,
-        "--segment-mode", proc.get("segment_mode", "llm"),
+        "--segment-mode", proc.get("segment_mode", "rule"),
         "--whisper-model", proc.get("whisper_model", "large-v3-turbo"),
         "--gemini-model", proc.get("gemini_model", "gemini-3.1-flash-lite"),
         "--translation-batch-size", str(proc.get("translation_batch_size", 100)),

@@ -15,7 +15,7 @@
   "max_uploads_per_cycle": 3,
   "processing": {
     "whisper_model": "large-v3-turbo",
-    "segment_mode": "llm",
+    "segment_mode": "rule",
     "gemini_model": "gemini-3.1-flash-lite",
     "translation_batch_size": 200,
     "enable_furigana": true,

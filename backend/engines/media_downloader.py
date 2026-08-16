@@ -31,7 +31,11 @@ class YouTubeMediaDownloader:
             'socket_timeout': 30,
             'retries': 10,
             'nocheckcertificate': True,
-            'extractor_args': {'youtube': {'player_client': ['default', 'mweb', 'tv']}},
+            # 只能单独指定 tv_simply。它是目前唯一会触发 wpc 插件铸出 GVS PO Token 的客户端，
+            # 而一旦列表里还有别的客户端（default/mweb/tv），yt-dlp 就不再为 tv_simply 取
+            # token，转而使用 android_vr 的无 token 直链——那种链接 YouTube 只放行前 ~10MB
+            # 就返回 403，表现为下载到 4% 左右突然失败。
+            'extractor_args': {'youtube': {'player_client': ['tv_simply']}},
         }
 
         # yt-dlp 会把 Set-Cookie 响应写回 cookiefile，YouTube 风控时返回的匿名 Set-Cookie

@@ -30,11 +30,11 @@ class YouTubeMediaDownloader:
             'keepvideo': True,
             'socket_timeout': 30,
             'retries': 10,
-            'nocheckcertificate': True,
-            # 只能单独指定 tv_simply。它是目前唯一会触发 wpc 插件铸出 GVS PO Token 的客户端，
-            # 而一旦列表里还有别的客户端（default/mweb/tv），yt-dlp 就不再为 tv_simply 取
-            # token，转而使用 android_vr 的无 token 直链——那种链接 YouTube 只放行前 ~10MB
-            # 就返回 403，表现为下载到 4% 左右突然失败。
+            # 千万不要加 'nocheckcertificate': True。yt-dlp-getpot-wpc 插件没有声明支持
+            # DISABLE_TLS_VERIFICATION，一旦开启该选项，PO Token 框架会静默跳过这个 provider，
+            # 于是拿不到 GVS PO Token：所有 DASH 格式被丢弃，只剩 360p 的 itag 18，
+            # 或者退回 android_vr 的无 token 直链（YouTube 只放行前 ~10MB 就 403）。
+            # 整个过程没有任何报错，唯一的症状就是画质悄悄掉到 360p。
             'extractor_args': {'youtube': {'player_client': ['tv_simply']}},
         }
 

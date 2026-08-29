@@ -23,7 +23,7 @@
     "fix_source_text": false
   },
   "upload": {
-    "line": null,
+    "line": "tx",
     "retries": 3,
     "retry_delay_seconds": 60
   }

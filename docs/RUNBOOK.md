@@ -171,52 +171,70 @@ PO Token 由 `yt-dlp-getpot-wpc` 插件提供，它会**真的拉起一个无头
 
 ### 5.4 B 站投稿失败 `client error (Connect)`
 
-日志形如：
+**根因：B 站部分上传节点的 TLS 证书过期了。** 不是网络抖动，也不是代理问题。
+
+`client error (Connect)` 是表层错误，真正的原因埋在 biliup 报错的最内层：
 
 ```
-error sending request for url (https://upos-cs-upcdnbldsa.bilivideo.com/...)
+├─▶ error sending request for url (https://upos-cs-upcdnbldsa.bilivideo.com/...)
 ├─▶ client error (Connect)
+╰─▶ invalid peer certificate: certificate expired: verification time 1788010016 (UNIX),
+    but certificate is not valid after 1783746060 (4263956 seconds ago)
 ```
 
-**这是间歇性的，不是配置错误。** B 站上传 CDN 的连通性会波动——同一个主机同一分钟内多次测试可能全通、也可能全挂，和代理无关（B 站走直连）。
+**看报错一定要翻到最后一行**，前面几层都不说明问题。
 
-关键要看 biliup 的**选线日志**：
+2026-08-29 实测，`bldsa` 这条线解析出 14 个 IP，**其中 7 个的证书 2026-07-11 就过期了**：
 
-```
-line.rs:99: ...upcdn=bda2&zone=cs: 1270      ← 探测到的耗时(ms)
-line.rs:99: ...upcdn=tx&zone=cs: 433
-line.rs:99: ...upcdn=estx&zone=cs: 1112
-line.rs:99: ...upcdn=akbd&zone=cs: 1502
-uploader.rs:402: Line { probe_url: "//upos-cs-upcdnbldsa.bilivideo.com/OK",
-                        cost: 340282366920938463463374607431768211455 }   ← 选中的
-```
+| 线路 | 节点数 | 证书有效 | 证书过期 |
+|---|---|---|---|
+| `tx` | 6 | 6 | 0 |
+| `bda2` | 1 | 1 | 0 |
+| `bldsa` | 14 | 7 | **7** |
 
-那个天文数字是 `u128::MAX`，是 biliup 给**探测失败/超时**线路的哨兵值。上面 4 条线都探通了（`tx` 最快 433ms），它却选了一条没探通的 `bldsa`——然后 reqwest 在这条死线上退避重试 5 次，全部失败。
+于是每次上传是在 14 个节点里轮询，**50% 概率撞上坏证书**。biliup 内部那 5 次 reqwest 重试解决不了——它在同一条线上退避，握手照样失败。换个新进程会重新解析，所以进程级重试大约一半能救回来；实测有一次连挂两次、第 3 次才过。
 
-biliup 自身的重试只在**同一条线路**上打转，所以选错线时重试多少次都没用。**有效的做法是换个进程重来**——biliup 每次启动都会重新探测选线。
+#### 处置：钉一条证书干净的线
 
-处置：
-
-1. `upload_to_bilibili()` 已内置重试（默认 3 次、间隔 60s），每次都是全新的 biliup 进程，会重新选线。通常第二次就过了。
-2. 如果某条线持续有问题，在 `automation/config.json` 里钉死一条已知良好的：
+`automation/config.json` 已经钉到 `tx`（配置每轮重读，改完不用重启）：
 
 ```json
 "upload": { "line": "tx", "retries": 3, "retry_delay_seconds": 60 }
 ```
 
-可选值：`bldsa` `cnbldsa` `andsa` `atdsa` `bda2` `cnbd` `anbd` `atbd` `tx` `cntx` `antx` `attx` `bda` `txa` `alia`。`line` 为 `null` 表示交给 biliup 自动选（默认）。
+进程级重试保留作为兜底，但正常情况不该再被触发。
 
-3. 手工探一遍当前哪条线通：
+#### 怎么复查线路的证书健康度
+
+B 站什么时候续证书不由我们决定，`tx` 也可能哪天轮到它过期。投稿又开始失败时，先跑这个：
 
 ```bash
-for h in bldsa tx bda2 estx; do
-  ok=0; for i in 1 2 3; do
-    c=$(timeout 8 curl -s -o /dev/null -w "%{http_code}" "https://upos-cs-upcdn$h.bilivideo.com/OK"); [ "$c" = 200 ] && ok=$((ok+1))
-  done; printf '%-8s %s/3\n' "$h" "$ok"
+now=$(date +%s)
+for line in tx bda2 bldsa; do
+  H="upos-cs-upcdn$line.bilivideo.com"; good=0; bad=0
+  for ip in $(getent ahostsv4 $H | awk '{print $1}' | sort -u); do
+    end=$(timeout 8 openssl s_client -connect "$ip:443" -servername "$H" </dev/null 2>/dev/null \
+          | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+    [ -z "$end" ] && continue
+    [ "$(date -d "$end" +%s)" -lt "$now" ] && bad=$((bad+1)) || good=$((good+1))
+  done
+  printf '%-6s 有效 %d 过期 %d\n' "$line" "$good" "$bad"
 done
 ```
 
-**注意**：投稿失败不会写入 history，视频下一轮会自动重排，所以单次失败不需要人工干预。
+挑一条 `过期 0` 且节点数多的换上去即可。可选线路：`bldsa` `cnbldsa` `andsa` `atdsa` `bda2`
+`cnbd` `anbd` `atbd` `tx` `cntx` `antx` `attx` `bda` `txa` `alia`。
+
+**注意**：`curl https://upos-cs-upcdnXXX.bilivideo.com/OK` 这种探测**不可靠**——它每次只碰到
+一个 IP，好坏全看运气，测出来的成功率是随机的。必须逐 IP 查证书。
+
+#### 一个错误的中间结论
+
+最初把这个归因为「上传 CDN 连通性波动 + biliup 选中了探测超时的线路」。选线日志里那个
+`cost: 340282366920938463463374607431768211455`（`u128::MAX`，探测超时的哨兵值）确实可疑，
+但它是伴随现象不是原因——真正的原因一直在报错最后一行写着，只是当时没往下翻。
+
+**注意**：投稿失败不会写入 history，视频下一轮会自动重排，所以不会丢。
 
 ### 5.5 Gemini 返回 400 `User location is not supported for the API use`
 

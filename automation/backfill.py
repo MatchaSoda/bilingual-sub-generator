@@ -107,6 +107,7 @@ def main():
             video_title,
             channel_cfg,
             processing,
+            full_config=config,
         )
         if ok:
             print(f"\n✅ 投稿成功: {video_title}")

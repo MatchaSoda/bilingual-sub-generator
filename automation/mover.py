@@ -59,6 +59,9 @@ def save_history(processed_ids):
     常驻服务和外部脚本（backfill.py）可能同时写这个文件，直接覆盖会丢条目。
     这里用文件锁串行化写入，并在锁内先把磁盘上已有条目并进来（避免覆盖对方新增的），
     最后原子替换落盘。processed_ids 会被就地更新为并集，保持内存与磁盘一致。
+
+    注意这个并集语义的副作用：手工从磁盘删掉的 id 会被运行中的进程写回来。
+    要删 history 必须先停服务，见 docs/RUNBOOK.md §3 和 scripts/prune_history.py。
     """
     try:
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -190,15 +193,23 @@ def fetch_video_description(video_url, throttle_seconds=0):
         if throttle_seconds:
             time.sleep(throttle_seconds)
 
-def upload_to_bilibili(video_path, cover_path, title, tid, description, tags):
-    """使用 biliup 投稿到 B 站"""
+def upload_to_bilibili(video_path, cover_path, title, tid, description, tags,
+                       line=None, retries=3, retry_delay=60):
+    """使用 biliup 投稿到 B 站，失败自动重试。
+
+    重试是必要的：B 站上传 CDN 的连通性时好时坏，而 biliup 每次启动都会重新探测线路，
+    所以「换个进程再试一次」经常就能成功。biliup 自身的 reqwest 重试只在同一条线路上
+    退避，选错线的话重试多少次都是白搭。详见 docs/RUNBOOK.md §5.4。
+
+    line: 指定上传线路（config.json 的 upload_line），None 表示交给 biliup 自动选。
+    """
     if not BILI_SESSION.exists():
         print(f"⚠️ 找不到 B 站登录凭据 {BILI_SESSION}, 跳过投稿")
         print(f"💡 请在 automation 目录下执行: ../venv/bin/biliup login")
         return False
 
     print(f"🚀 开始投稿 B 站: {title} (分区: {tid})")
-    
+
     cmd = [
         str(BILIUP_PATH), "upload",
         str(video_path),
@@ -209,27 +220,39 @@ def upload_to_bilibili(video_path, cover_path, title, tid, description, tags):
         "--cover", str(cover_path) if cover_path and cover_path.exists() else "",
         "--tag", tags,
     ]
+    if line:
+        cmd += ["--line", str(line)]
 
     # 清除空参数 (例如没有封面时)
     cmd = [c for c in cmd if c]
 
-    try:
-        process = subprocess.run(
-            cmd, 
-            cwd=str(Path(__file__).parent), 
-            check=True, 
-            capture_output=True, 
-            text=True
-        )
-        print(f"✅ B 站投稿成功!")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"❌ B 站投稿失败!")
-        error_msg = e.stderr or e.stdout or str(e)
-        print(f"  错误详情: {error_msg}")
-        return False
+    total_attempts = max(1, retries)
+    for attempt in range(1, total_attempts + 1):
+        try:
+            subprocess.run(
+                cmd,
+                cwd=str(Path(__file__).parent),
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            if attempt > 1:
+                print(f"✅ B 站投稿成功! (第 {attempt}/{total_attempts} 次尝试)")
+            else:
+                print(f"✅ B 站投稿成功!")
+            return True
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr or e.stdout or str(e)
+            if attempt < total_attempts:
+                print(f"⚠️ B 站投稿失败 (第 {attempt}/{total_attempts} 次)，{retry_delay}s 后重试")
+                print(f"  错误详情: {error_msg[-1500:]}")
+                time.sleep(retry_delay)
+            else:
+                print(f"❌ B 站投稿失败! (已重试 {total_attempts} 次)")
+                print(f"  错误详情: {error_msg}")
+    return False
 
-def process_and_upload(video_id, video_url, video_title, config, processing=None):
+def process_and_upload(video_id, video_url, video_title, config, processing=None, full_config=None):
     print(f"\n🚀 开始处理: {video_title} ({video_id})")
 
     # 将非法字符替换为下划线，保留标题长度和可识别性
@@ -317,7 +340,13 @@ def process_and_upload(video_id, video_url, video_title, config, processing=None
     
     bili_tags = config.get('tags', "日语学习,双语字幕,日本,日本新闻,日常")
     
-    return upload_to_bilibili(target_video_path, target_cover_path, bili_title, bili_tid, bili_desc, bili_tags)
+    upload_settings = (full_config or {}).get('upload', {})
+    return upload_to_bilibili(
+        target_video_path, target_cover_path, bili_title, bili_tid, bili_desc, bili_tags,
+        line=upload_settings.get('line'),
+        retries=upload_settings.get('retries', 3),
+        retry_delay=upload_settings.get('retry_delay_seconds', 60),
+    )
 
 
 def main():
@@ -385,7 +414,7 @@ def main():
                         print(f"should process: {entry['title']}")
                         # 计入本轮配额（无论成功失败，重下载/上传都已发生）
                         uploads_this_cycle += 1
-                        if process_and_upload(entry['id'], entry['url'], entry['title'], channel, config.get('processing', {})):
+                        if process_and_upload(entry['id'], entry['url'], entry['title'], channel, config.get('processing', {}), full_config=config):
                             history.add(entry['id'])
                             save_history(history)
                     else:

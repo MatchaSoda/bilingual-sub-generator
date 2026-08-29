@@ -5,7 +5,7 @@ import google.generativeai as genai
 from google.generativeai import protos
 from typing import List, Dict
 from config.keys import key_manager
-from utils.gemini_transport import gemini_network_route
+from utils.gemini_transport import gemini_network_route, route_for_attempt
 from config.settings import MODEL_NAME
 
 class GeminiSubtitleTranslator:
@@ -34,7 +34,7 @@ class GeminiSubtitleTranslator:
             try:
                 raw_ai_response_text = self._call_gemini_api_with_retry(
                     api_key, translation_prompt, response_schema=response_schema,
-                    sampling_temperature=sampling_temperature
+                    sampling_temperature=sampling_temperature, attempt=attempt_number
                 )
                 self._parse_and_apply_translations(subtitle_segments, raw_ai_response_text, should_fix_source_errors)
                 return subtitle_segments
@@ -65,7 +65,7 @@ class GeminiSubtitleTranslator:
         for attempt_number in range(maximum_api_retries):
             api_key = key_manager.get_next_available_api_key()
             try:
-                raw_ai_response_text = self._call_gemini_api_with_retry(api_key, prompt)
+                raw_ai_response_text = self._call_gemini_api_with_retry(api_key, prompt, attempt=attempt_number)
                 return self._clean_translated_title(raw_ai_response_text)
             except Exception as api_error:
                 if attempt_number == maximum_api_retries - 1:
@@ -127,7 +127,7 @@ Subtitles:
             ),
         )
 
-    def _call_gemini_api_with_retry(self, api_key, prompt, response_schema=None, sampling_temperature=0.0):
+    def _call_gemini_api_with_retry(self, api_key, prompt, response_schema=None, sampling_temperature=0.0, attempt=0):
         genai.configure(api_key=api_key, transport='rest')
         generative_model = genai.GenerativeModel(self.model_name)
 
@@ -142,7 +142,7 @@ Subtitles:
                 temperature=sampling_temperature,
             )
 
-        with gemini_network_route():
+        with gemini_network_route(attempt):
             response = generative_model.generate_content(
                 prompt,
                 generation_config=generation_config,
@@ -184,7 +184,7 @@ Subtitles:
 
     def _perform_exponential_backoff(self, attempt, error):
         seconds_to_wait = 2 ** (attempt + 1)
-        print(f"⚠️ Attempt {attempt + 1} failed: {error}", flush=True)
+        print(f"⚠️ Attempt {attempt + 1} failed (route={route_for_attempt(attempt)}): {error}", flush=True)
         print(f"⏳ Waiting {seconds_to_wait} seconds before retrying...", flush=True)
         time.sleep(seconds_to_wait)
 

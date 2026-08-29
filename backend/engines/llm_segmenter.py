@@ -245,7 +245,7 @@ class LLMSubtitleSegmenter:
             try:
                 genai.configure(api_key=api_key, transport="rest")
                 model = genai.GenerativeModel(self.model_name)
-                with gemini_network_route():
+                with gemini_network_route(attempt_number):
                     response = model.generate_content(
                         prompt, request_options={"timeout": 45, "retry": None}
                     )

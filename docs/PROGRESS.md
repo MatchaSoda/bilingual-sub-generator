@@ -64,11 +64,15 @@
 最终实测清楚：WARP IPv4 全拒（0/16），WARP IPv6 可用，而 **VPS 原生 IPv4 出口 17/17 全过**。
 所以 WARP 在这个场景里是问题本身，不是解法。
 
-修复：`backend/utils/gemini_transport.py` 在 Gemini 调用期间临时切到 `socks5://`（本地解析
-DNS）并钉死 IPv4，服务端只看到 IP 字面量、匹配不上 `geosite:google`，落到直连出站。作用域
-限制在 Gemini 调用内，yt-dlp 和 PO Token 的无头 Chrome 不受影响。
+修复：`backend/utils/gemini_transport.py` 让**重试在两条路径间轮换**——偶数次尝试走
+`direct-v4`（切 `socks5://` 本地解析 + 钉死 IPv4，绕开服务端域名分流落到直连出站），
+奇数次走 `default`（原有 WARP 分流）。作用域限制在 Gemini 调用内。
 
-验证：真实 translator 类连测 6/6 全过且**零重试**，环境变量与 `getaddrinfo` 调用后正确还原。
+之所以不直接把 WARP 摘掉：用户指出当初加 WARP 正是因为 VPS 原生 IP 被 Google 封过。
+两边的封禁态势都在变，押注任何单条路径都会在某天翻车，所以做成轮换。
+
+验证：直连路径用真实负载连测 15/15（累计 32/32），真实 translator 类零重试通过；
+故障注入把 `direct-v4` 指向死端口后，`default` 成功兜住。环境变量与 `getaddrinfo` 正确还原。
 
 ---
 

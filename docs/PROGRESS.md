@@ -7,8 +7,8 @@
 
 ## 现在的状态
 
-自动搬运服务 `bili-mover` 在线运行。今天修完了三处故障（过滤死锁 / YouTube 风控 / B 站选线），
-下载链路已实测验证，**投稿链路的修复还没等到线上跑一轮，端到端尚未确认跑通一条**。
+自动搬运服务 `bili-mover` 在线运行，**端到端已跑通**：20:21 有一条视频完整走完
+下载 → 转写 → 翻译 → 压制 → B 站投稿并成功。今天共修复四处故障。
 
 积压：约 29 条视频待补投，已从 `history.json` 中移除，服务每轮取 3 条自动重试，无需人工干预。
 
@@ -49,6 +49,27 @@
 
 新增 `CLAUDE.md` / `docs/RUNBOOK.md` / `docs/PROGRESS.md`，把上述运维经验从代码注释里搬出来，代码里只留一句指向 runbook 的锚点。
 
+### ⑤ Gemini 地区封锁（已修复）
+
+翻译和标题翻译频繁报 400 `User location is not supported for the API use`，靠重试硬扛
+过去（标题一次要退避 17 秒），偶发耗尽 6 次重试导致整条流水线失败。
+
+排查过程绕了两次弯，都记在 [RUNBOOK §5.5](./RUNBOOK.md#55-gemini-返回-400-user-location-is-not-supported-for-the-api-use)：
+
+1. 先用「成功的慢、失败的快」推断有两条路径——**推理是错的**，400 不做模型推理天然就快，
+   那个延迟差是推理耗时不是网络跳数。
+2. 再推断是 WARP 的 IPv6 被封、建议强制 v4——**结论也是反的**。用户改成 ForceIPv4 后
+   成功率从 55% 掉到 0%，反而证明被封的是 WARP 的 **IPv4** 段。
+
+最终实测清楚：WARP IPv4 全拒（0/16），WARP IPv6 可用，而 **VPS 原生 IPv4 出口 17/17 全过**。
+所以 WARP 在这个场景里是问题本身，不是解法。
+
+修复：`backend/utils/gemini_transport.py` 在 Gemini 调用期间临时切到 `socks5://`（本地解析
+DNS）并钉死 IPv4，服务端只看到 IP 字面量、匹配不上 `geosite:google`，落到直连出站。作用域
+限制在 Gemini 调用内，yt-dlp 和 PO Token 的无头 Chrome 不受影响。
+
+验证：真实 translator 类连测 6/6 全过且**零重试**，环境变量与 `getaddrinfo` 调用后正确还原。
+
 ---
 
 ## 已知问题
@@ -69,7 +90,7 @@ biliup 内部的 reqwest 重试只在同一条死线上退避，所以必然失�
 biliup 进程会重新探测选线；同时支持在 `config.json` 的 `upload.line` 钉死线路。
 已用故障注入的假 biliup 验证过三种路径（中途成功 / 耗尽重试 / `--line` 透传）。
 
-线上尚未跑到下一次投稿，**需要观察一轮确认**。
+**已线上验证**：20:21:02 投稿成功（首次尝试即通过，重试逻辑未被触发）。
 
 ### #2 两个待决策的小项
 

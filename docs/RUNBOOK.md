@@ -218,6 +218,65 @@ done
 
 **注意**：投稿失败不会写入 history，视频下一轮会自动重排，所以单次失败不需要人工干预。
 
+### 5.5 Gemini 返回 400 `User location is not supported for the API use`
+
+不是 key、配额或代码问题，是**出口 IP 被拒**。判断要点：如果是间歇性的（时好时坏），
+说明请求走了不止一条出口路径。
+
+实测过的三条出口（2026-08-29）：
+
+| 出口 | Gemini |
+|---|---|
+| WARP 的 IPv4 | ❌ 0/16 全拒 |
+| WARP 的 IPv6 | ✅ 可用 |
+| VPS 原生 IPv4 `45.192.198.87` (JP) | ✅ 17/17 |
+
+也就是说 **WARP 反而是问题所在**，VPS 自己的 IPv4 出口 Gemini 完全接受。
+
+代码侧已经绕开了（`backend/utils/gemini_transport.py`）：Gemini 调用期间临时把代理换成
+`socks5://`（本地解析 DNS）并钉死 IPv4。服务端只看到 IP 字面量，匹配不上 `geosite:google`
+这条域名规则，于是落到直连出站。
+
+**决定性的是本地解析，不是 IP 版本**——实测 `socks5` 本地解析不加 v4 限制也是 6/6，而
+`socks5h`（服务端解析）加了 v4 限制仍然只有 4/6，因为客户端的限制根本没被用上：
+
+```
+socks5  本地解析 + 强制v4     6/6
+socks5  本地解析 不限制        6/6
+socks5h 服务端解析 + 强制v4    4/6   ← 客户端限制无效
+http    (原行为)              2/6
+```
+
+钉死 IPv4 只是为了不依赖本地解析器恰好把 A 记录排在前面。
+
+想关掉这个绕行（比如换了网络环境、服务端已修好分流）：设 `GEMINI_PROXY=""`。
+想换端口：默认从 `HTTPS_PROXY` 换 scheme 得到，跟着一起变，不用改代码。
+
+**服务端的根治办法**（可选）：在 3x-ui 里加一条优先级高于 `geosite:google` 的规则，把
+`domain:googleapis.com` 指向 direct 出站，并设 `domainStrategy: UseIPv4`。这样浏览器等
+其他客户端也一并受益。注意别把整个 `geosite:google` 从 WARP 摘掉——YouTube 那边还要用。
+
+#### 一个踩过的坑：别拿响应时间推断网络路径
+
+排查时我们看到「成功的请求平均 2067ms、被拒的平均 901ms」，据此推断是两条不同路径。
+**这个推理是错的**：400 是 Google 直接拒绝、根本不做模型推理，所以天然就快；200 要真的
+生成内容，慢是推理耗时。LLM 接口的延迟差主要来自推理而非网络跳数，不能当路径指纹用。
+
+要定位路径，用出口身份而不是延迟：
+
+```bash
+# 各模式的出口 IP（socks5=本地解析, socks5h=服务端解析）
+curl -s -x socks5h://127.0.0.1:10808 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)='
+curl -s -x socks5://127.0.0.1:10808 --ipv4 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)='
+# 查出口归属
+curl -s https://rdap.arin.net/registry/ip/<IP> | python3 -m json.tool | head -20
+```
+
+注意这个出口身份是对 `cloudflare.com` 测的。如果分流规则按域名走，它反映不了 Gemini 那条路；
+要看 Gemini 的出口，得临时把一个会回显来源 IP 的域名加进同一条规则。
+
+---
+
 ---
 
 ## 6. 验证脚本

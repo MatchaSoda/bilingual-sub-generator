@@ -15,6 +15,7 @@ optimizer for that batch, so output is always produced.
 import time
 import google.generativeai as genai
 from config.keys import key_manager
+from utils.gemini_transport import gemini_network_route
 from engines.segment_optimizer import (
     SubtitleSegmentOptimizer,
     flatten_words,
@@ -244,9 +245,10 @@ class LLMSubtitleSegmenter:
             try:
                 genai.configure(api_key=api_key, transport="rest")
                 model = genai.GenerativeModel(self.model_name)
-                response = model.generate_content(
-                    prompt, request_options={"timeout": 45, "retry": None}
-                )
+                with gemini_network_route():
+                    response = model.generate_content(
+                        prompt, request_options={"timeout": 45, "retry": None}
+                    )
                 return response.text.strip()
             except Exception as api_error:
                 if attempt_number == maximum_api_retries - 1:

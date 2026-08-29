@@ -5,6 +5,7 @@ import google.generativeai as genai
 from google.generativeai import protos
 from typing import List, Dict
 from config.keys import key_manager
+from utils.gemini_transport import gemini_network_route
 from config.settings import MODEL_NAME
 
 class GeminiSubtitleTranslator:
@@ -141,11 +142,12 @@ Subtitles:
                 temperature=sampling_temperature,
             )
 
-        response = generative_model.generate_content(
-            prompt,
-            generation_config=generation_config,
-            request_options={"timeout": 45, "retry": None}
-        )
+        with gemini_network_route():
+            response = generative_model.generate_content(
+                prompt,
+                generation_config=generation_config,
+                request_options={"timeout": 45, "retry": None}
+            )
         return response.text.strip()
 
     def _parse_and_apply_translations(self, segments, raw_response_text, fix_source):

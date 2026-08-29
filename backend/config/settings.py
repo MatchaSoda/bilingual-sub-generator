@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -23,6 +24,17 @@ HTTPS_PROXY = os.getenv("HTTPS_PROXY", "http://127.0.0.1:10808")
 
 _COOKIES_FILE = BASE_DIR / "cookies.txt"
 YT_DLP_COOKIES = str(_COOKIES_FILE) if _COOKIES_FILE.exists() else None
+
+# Gemini 单独走 SOCKS + 本地 DNS 解析，绕开代理服务端的域名分流（见 docs/RUNBOOK.md §5.5）。
+# 默认由 HTTPS_PROXY 换 scheme 得到，端口跟着一起变；设 GEMINI_PROXY="" 可关掉这个绕行。
+def _socks_variant(proxy_url):
+    if not proxy_url:
+        return None
+    return re.sub(r"^https?://", "socks5://", proxy_url)
+
+_gemini_proxy_override = os.getenv("GEMINI_PROXY")
+GEMINI_PROXY = _gemini_proxy_override if _gemini_proxy_override is not None else _socks_variant(HTTPS_PROXY)
+GEMINI_FORCE_IPV4 = os.getenv("GEMINI_FORCE_IPV4", "1") == "1"
 
 GOOGLE_API_KEYS = os.getenv("GOOGLE_API_KEYS", "")
 MODEL_NAME = "gemini-3.1-flash-lite"

@@ -41,4 +41,7 @@ bash start.sh
 
 ## 📖 文档与 Wiki
 
-- **[技术文档 (Wiki)](./document.md)**: 关于系统架构、详细配置参数、技术路径以及自动化模块的深入说明。
+- **[技术文档 (Wiki)](./document.md)**: 系统架构、详细配置参数、技术路径以及自动化模块的深入说明。
+- **[运维手册 (Runbook)](./docs/RUNBOOK.md)**: 服务操作、凭据更新、故障处置与验证脚本。
+- **[当前进展 (Progress)](./docs/PROGRESS.md)**: 最近改动、已知问题与技术债。
+- **[CLAUDE.md](./CLAUDE.md)**: 给 AI 协作者的项目约定。

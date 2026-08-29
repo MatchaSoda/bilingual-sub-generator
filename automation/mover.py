@@ -363,6 +363,9 @@ def main():
                     title = entry.get('title') or ""
                     title_lower = title.lower()
 
+                    # exclude 只对标题生效；keyword 则标题 + 描述都查。
+                    # 不要把 exclude 也用到描述上——会和 keyword 形成子串死锁，
+                    # 匹配率静默变成 0。原委见 docs/RUNBOOK.md §4。
                     hit_exclude = next((ex for ex in excludes if ex in title_lower), None)
                     if hit_exclude:
                         print(f"⏭️ 跳过 (标题命中排除词 '{hit_exclude}'): {title}")
@@ -376,13 +379,7 @@ def main():
                         # title 没命中再去拿描述（每个 ~10s，所以放后面）
                         print(f"🔎 标题未命中，拉取描述: {title}")
                         description = fetch_video_description(entry['url'], desc_interval)
-                        description_lower = description.lower()
-                        hit_exclude = next((ex for ex in excludes if ex in description_lower), None)
-                        if hit_exclude:
-                            print(f"⏭️ 跳过 (描述命中排除词 '{hit_exclude}'): {title}")
-                            is_match = False
-                        else:
-                            is_match = keyword in description_lower
+                        is_match = keyword in description.lower()
 
                     if is_match:
                         print(f"should process: {entry['title']}")

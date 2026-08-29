@@ -29,7 +29,8 @@ journalctl -u bili-mover -f | grep -E "should process|投稿成功|投稿失败|
 
 | 改动 | 需要重启？ |
 |---|---|
-| `automation/config.json` | ❌ 每轮循环重新读 |
+| `automation/config.json` 的 `upload` 段 | ❌ **投稿时实时读盘**，改完立刻生效 |
+| `automation/config.json` 其余部分 | ❌ 每轮循环开头读一次，**改动要下一轮才生效**（一轮最长 30 分钟） |
 | `backend/**`（含 `media_downloader.py`） | ❌ 每个视频新起 `entry_cli.py` 子进程 |
 | `cookies.txt` | ❌ 每次下载重新复制 |
 | `automation/mover.py` | ✅ 代码常驻内存 |
@@ -196,7 +197,9 @@ PO Token 由 `yt-dlp-getpot-wpc` 插件提供，它会**真的拉起一个无头
 
 #### 处置：钉一条证书干净的线
 
-`automation/config.json` 已经钉到 `tx`（配置每轮重读，改完不用重启）：
+`automation/config.json` 已经钉到 `tx`。**`upload` 段是在投稿那一刻实时读盘的**，改完立刻
+生效、不用重启也不用等下一轮——这正是为了救火：其余配置项在循环开头读一次，改了要等下
+一轮，而一轮最长 30 分钟，够失败好几个视频。
 
 ```json
 "upload": { "line": "tx", "retries": 3, "retry_delay_seconds": 60 }

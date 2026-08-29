@@ -340,7 +340,15 @@ def process_and_upload(video_id, video_url, video_title, config, processing=None
     
     bili_tags = config.get('tags', "日语学习,双语字幕,日本,日本新闻,日常")
     
-    upload_settings = (full_config or {}).get('upload', {})
+    # 投稿参数在投稿这一刻重新读盘，而不是沿用循环开头那份。B 站会让某条上传线路的
+    # 证书过期（见 docs/RUNBOOK.md §5.4），救火时改 upload.line 要立刻管用，不能等上
+    # 一整轮——一轮最长 30 分钟，够失败好几个视频了。读盘失败就退回本轮的配置。
+    try:
+        upload_settings = (load_config() or {}).get('upload', {})
+    except SystemExit:
+        upload_settings = (full_config or {}).get('upload', {})
+    except Exception:
+        upload_settings = (full_config or {}).get('upload', {})
     return upload_to_bilibili(
         target_video_path, target_cover_path, bili_title, bili_tid, bili_desc, bili_tags,
         line=upload_settings.get('line'),

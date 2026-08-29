@@ -30,12 +30,10 @@ class YouTubeMediaDownloader:
             'keepvideo': True,
             'socket_timeout': 30,
             'retries': 10,
-            # 千万不要加 'nocheckcertificate': True。yt-dlp-getpot-wpc 插件没有声明支持
-            # DISABLE_TLS_VERIFICATION，一旦开启该选项，PO Token 框架会静默跳过这个 provider，
-            # 于是拿不到 GVS PO Token：所有 DASH 格式被丢弃，只剩 360p 的 itag 18，
-            # 或者退回 android_vr 的无 token 直链（YouTube 只放行前 ~10MB 就 403）。
-            # 整个过程没有任何报错，唯一的症状就是画质悄悄掉到 360p。
-            'extractor_args': {'youtube': {'player_client': ['tv_simply']}},
+            # mweb 是唯一同时支持 cookies 和 GVS PO Token 的客户端。改这行、或往这个 dict 里
+            # 加 'nocheckcertificate' 之前，先读 docs/RUNBOOK.md §5.3 —— 那里有客户端取舍
+            # 矩阵，以及为什么这些错法都是静默失败（不报错，只是画质掉到 360p）。
+            'extractor_args': {'youtube': {'player_client': ['mweb']}},
         }
 
         # yt-dlp 会把 Set-Cookie 响应写回 cookiefile，YouTube 风控时返回的匿名 Set-Cookie

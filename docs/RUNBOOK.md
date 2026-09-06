@@ -125,6 +125,22 @@ exclude 含 "every"
 
 2026-08-27 到 08-29 停产两天就是这个原因。修复方式是把描述层的排除词检查整个删掉。
 
+### `exclude` 里的 `every` 是有意保留的，不要删
+
+现在 `exclude` 只作用于标题，所以 `every` 不再和 keyword 死锁，但它**仍在干活**：
+日テレ的『every.特集』（美食 / 生活 / 街录类专题）描述里同样带 `#newsevery`，
+靠描述无法和普通新闻区分，**标题里的 `every.特集` 是唯一的区分信号**。
+用户明确只要普通新闻、不要这类专题，所以这条排除词是过滤器而非误配。
+
+09-07 有人（AI）又把它当成 08-29 那个 bug 的残留查了一遍，实测拉了
+`EwAI8HI54Ks` / `DfjuPKvutoc` 的描述确认确实含 `#newsevery`，才发现是有意为之。
+**在动这个词之前先问用户要不要『every.特集』**，不要凭「语义冲突」自行判断。
+
+### 排除词是裸子串匹配
+
+不做词边界检查，所以 `死` 会命中「起死回生」、`害` 会命中「利害」。
+实测误伤率不高（09-07 复查：9 条 `死` 命中里 1 条是成语 `wByz7sJm-Rk`），现状接受。
+
 ---
 
 ## 5. 故障处置
@@ -360,3 +376,63 @@ cd automation
 ```
 
 它直接 import `mover.py` 的 `load_config` / `process_and_upload`，所以处理参数和自动搬运完全一致，不会出现两套逻辑漂移。写 history 时用的是同一个带文件锁的 `save_history`，与常驻服务并发安全。
+
+---
+
+## 8. 诊断「产出为零 / 最近没更新」
+
+这个症状出现过三次，**三次都不是服务挂了**（两次过滤规则、一次确实没有匹配的视频）。
+所以顺序是先量化判定分布，再怀疑故障——反过来会浪费大量时间在健康的组件上。
+
+### 第一步：服务活着吗
+
+```bash
+systemctl status bili-mover --no-pager | head -5
+```
+
+看 `Active: active (running)` 和 `since`。如果 `since` 很近说明刚重启过（可能崩过），
+否则进程本身没问题，直接进第二步。
+
+### 第二步：数判定分布
+
+```bash
+journalctl -u bili-mover --since "2 days ago" --no-pager > /tmp/mv.log
+
+grep -c "should process"    /tmp/mv.log   # 命中并进入流水线
+grep -c "关键字不匹配"       /tmp/mv.log   # 拉到描述但没有 keyword
+grep -c "命中排除词"         /tmp/mv.log   # 被 exclude 干掉
+grep -c "拉取描述失败"       /tmp/mv.log   # ⚠️ 见下面「静默陷阱」
+grep -oE "命中排除词 '[^']*'" /tmp/mv.log | sort | uniq -c | sort -rn
+```
+
+怎么读：
+
+| 现象 | 含义 |
+|---|---|
+| 三类计数**全为 0**，但有「发现 300 个视频」 | 窗口内全部已在 history —— 频道没发新视频，或 `playlist_items` 窗口太小被旧视频占满 |
+| `关键字不匹配` 占绝大多数 | 正常。日テレ每天大量普通新闻不带 `#newsevery` |
+| 某个排除词命中数异常高 | 看 §4，确认是过滤器还是误配。**别急着删，先问用户** |
+| `拉取描述失败` > 0 | 真故障，见下 |
+
+### 第三步：静默陷阱 —— 描述拉取失败会被当成「不匹配」
+
+`mover.py` 里 `fetch_video_description()` 失败时返回空字符串，调用方拿到 `""` 后
+`keyword in ""` 为 False，于是走「关键字不匹配」分支，**把视频永久写入 history**。
+也就是说 YouTube 风控导致的拉描述失败，表现和「这个视频确实不匹配」完全一样，
+只在日志里多一行 `⚠️ 拉取描述失败`。
+
+所以 `拉取描述失败` 的计数必须单独看。如果它非零，那些视频是被误丢的，
+要按 §3 的姿势从 history 里捞回来，并检查 cookies（§2）。
+
+### 第四步：确认某条被跳过的视频到底该不该跳
+
+不要靠读标题推理，直接拉描述实测：
+
+```bash
+./venv/bin/yt-dlp --cookies cookies.txt --skip-download --ignore-no-formats-error \
+  --print "%(description)s" "https://www.youtube.com/watch?v=<id>" \
+  | grep -oiE "#newsevery"
+```
+
+有输出 = 描述确实命中 keyword，那它是被排除词拦下的；无输出 = 本来就不该处理。
+

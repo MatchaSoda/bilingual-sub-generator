@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import google.generativeai as genai
@@ -7,6 +8,24 @@ from typing import List, Dict
 from config.keys import key_manager
 from utils.gemini_transport import gemini_network_route, route_for_attempt
 from config.settings import MODEL_NAME
+
+# Fixed program / segment names that appear inside 【】 on the source channel and should
+# survive translation verbatim. This is a closed list on purpose: the earlier open-ended
+# instruction ("keep it if it looks like a show name") made the model keep ~15% of generic
+# topic tags (【エネルギーの安定供給】, 【千葉豪雨を受け】...) in Japanese.
+PRESERVED_TITLE_SEGMENT_NAMES = (
+    "#みんなのギモン",
+    "きょうの1日",
+    "なるほどッ！",
+    "いまダケッ",
+    "ねぇねぇそらジロー",
+    "気になる！",
+    "NNNセレクション",
+    "every.特集",
+)
+# Hiragana + katakana (incl. prolonged sound mark). Kanji deliberately excluded.
+_KANA_PATTERN = re.compile(r"[\u3040-\u30ff]")
+
 
 class GeminiSubtitleTranslator:
     def __init__(self, target_language_code: str = "zh-CN", ai_model_identifier: str = None):
@@ -53,26 +72,72 @@ class GeminiSubtitleTranslator:
             return title
 
         print(f"🌐 Translating video title via Gemini ({self.model_name})...", flush=True)
-        prompt = (
-            f"Translate the following video title from {source_language} into {self.target_language}.\n"
-            "Return ONLY the translated title on a single line, with no quotes, labels, or explanation.\n"
-            "Keep it concise and natural as a video title.\n"
-            "If text enclosed in 【】 brackets is a fixed show name or program segment name (e.g. 【ゲーム実況】, 【雑談】, 【#みんなのギモン】, 【きょうの1日】, 【なるほどッ！】), keep it unchanged in its original language. If it is just a generic tag, category, or keyword, translate it normally. In either case, preserve the 【】 brackets themselves.\n\n"
-            f"Title: {title}"
-        )
-
-        maximum_api_retries = 4
+        prompt = self._construct_title_prompt(title, source_language)
+        # Retry budget matches subtitle translation: with two egress routes alternating
+        # per attempt, fewer retries means fewer shots on whichever route is alive.
+        maximum_api_retries = 6
+        # One extra round-trip if the model left source-language text behind. Bounded so a
+        # stubborn title cannot loop forever; the last answer is accepted as-is.
+        untranslated_fixup_rounds_left = 1
         for attempt_number in range(maximum_api_retries):
             api_key = key_manager.get_next_available_api_key()
             try:
                 raw_ai_response_text = self._call_gemini_api_with_retry(api_key, prompt, attempt=attempt_number)
-                return self._clean_translated_title(raw_ai_response_text)
             except Exception as api_error:
                 if attempt_number == maximum_api_retries - 1:
                     raise api_error
                 self._perform_exponential_backoff(attempt_number, api_error)
+                continue
+
+            translated_title = self._clean_translated_title(raw_ai_response_text)
+            leftover = self._untranslated_japanese_in_title(translated_title, source_language)
+            if leftover and untranslated_fixup_rounds_left > 0 and attempt_number < maximum_api_retries - 1:
+                untranslated_fixup_rounds_left -= 1
+                print(f"⚠️ Title still contains untranslated Japanese ({leftover}); asking once more...", flush=True)
+                prompt = self._construct_title_prompt(title, source_language, previous_attempt=translated_title)
+                continue
+            return translated_title
 
         return title
+
+    def _construct_title_prompt(self, title: str, source_language: str, previous_attempt: str = None) -> str:
+        preserved_names = ", ".join(f"【{name}】" for name in PRESERVED_TITLE_SEGMENT_NAMES)
+        prompt = (
+            f"Translate the following video title from {source_language} into {self.target_language}.\n"
+            "Return ONLY the translated title on a single line, with no quotes, labels, or explanation.\n"
+            "Keep it concise and natural as a video title.\n"
+            "Text enclosed in 【】 brackets is a topic tag and MUST be translated like the rest of the title, "
+            "keeping the 【】 brackets themselves. The ONLY exception is this closed list of fixed program / "
+            f"segment names, which must stay exactly as written: {preserved_names}. "
+            "Anything not on that list is a topic tag, not a program name, even if it looks like one.\n"
+            "The output must not contain any source-language text outside those listed names.\n"
+        )
+        if previous_attempt:
+            prompt += (
+                f"\nYour previous answer was: {previous_attempt}\n"
+                "It still contains untranslated text. Translate every remaining part except the listed program names.\n"
+            )
+        prompt += f"\nTitle: {title}"
+        return prompt
+
+    @staticmethod
+    def _untranslated_japanese_in_title(translated_title: str, source_language: str) -> str:
+        """Return the kana-bearing fragments the model left untranslated, or "" if clean.
+
+        Only meaningful for Japanese sources: kana (hiragana / katakana) cannot appear in a
+        zh-CN title, so any kana outside the preserved program names means the model kept
+        source text. Kanji are shared between the two languages and are not checked.
+        """
+        if not source_language or not source_language.lower().startswith("ja"):
+            return ""
+        stripped = translated_title
+        for name in PRESERVED_TITLE_SEGMENT_NAMES:
+            stripped = stripped.replace(name, "")
+        # Whole 【】 groups first so the report reads as tags, then any loose kana runs.
+        leftovers = [group for group in re.findall(r"【[^】]*】", stripped) if _KANA_PATTERN.search(group)]
+        remainder = re.sub(r"【[^】]*】", "", stripped)
+        leftovers += re.findall(r"[^\s【】]*" + _KANA_PATTERN.pattern + r"[^\s【】]*", remainder)
+        return " ".join(dict.fromkeys(leftovers))
 
     def _clean_translated_title(self, raw_text: str) -> str:
         first_line = next((line.strip() for line in raw_text.splitlines() if line.strip()), "")

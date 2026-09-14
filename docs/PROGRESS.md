@@ -7,17 +7,19 @@
 
 ## 现在的状态
 
-**两个线上问题同时在发生，都是外部凭据 / 出口的事，需要用户动手：**
+**一个根因，两个症状，等服务端一个动作。**
 
-1. **YouTube cookies 已失效**（09-08 15:32 起）。浏览器轮换了 token，yt-dlp 打
-   `cookies are no longer valid` 后按未登录处理，下载约 42% 失败（09-08~09-14：172 次
-   流水线、73 次 `CLI 失败`，§6 探测 6 次挂 3 次）。失败视频不进 history，会自动重试，
-   但吃掉每轮配额。**处置：按 RUNBOOK §2 重新导出 cookies.txt**，机制见 §5.2 第二种根因。
-2. **Gemini 两条出口 09-14 晚全被拒**（400 User location）。`direct-v4` 从 09-08 起就几乎
-   全挂，`default` 从 09-11 起间歇（约 70%），09-14 21:30 复测两条都是 0/N。后果：字幕翻译
-   偶发耗尽重试导致 `CLI 失败`（31 次）、标题翻译失败时**照常投稿日文标题**（13 条）。
-   **处置：服务端出口（3x-ui）**，数据与建议见 RUNBOOK §5.5「2026-09-14 复测」；
-   本机可用 `scripts/probe_gemini_routes.py` 随时复测。
+09-14 查下来「YouTube cookie 失效」和「Gemini 400」是同一件事：给 google 域名用的 WARP 出口
+在 **IPv6（干净）和 IPv4（被 Google 拉黑）之间随机**，约 5:3。落到 IPv4 的请求，Gemini 直接 400，
+YouTube 则当场清掉会话 cookie → `cookies are no longer valid` → `not a bot`。VPS 原生 IPv4
+这次也被拒了，所以 `direct-v4` 路径全死。WARP 09-08 前后掉过线，那段时间两个症状都到顶。
+
+- 22:30 用户重新挂上 WARP 后：Gemini `default` 6/10，yt-dlp 4/6。
+- **待用户做**：把 google 那条 WARP 出站钉到 IPv6（RUNBOOK §5.5 末尾有具体做法和验证方法）。
+  钉好后两边都应接近 100%，不需要改代码、不需要重启服务。
+- `cookies.txt` 已换成 09-14 22:02 的新导出（461 条、每条重复两行、无害），不是它的问题，
+  但换了也没坏处。旧文件在 `cookies.txt.bak-20260914`。
+- 诊断出口身份的新方法（`dns.google` 的 EDNS Client Subnet 回显）已写进 §5.5，以后不用再猜。
 
 ## 2026-09-14 这次做了什么
 

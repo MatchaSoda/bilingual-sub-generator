@@ -42,7 +42,7 @@ journalctl -u bili-mover -f | grep -E "should process|投稿成功|投稿失败|
 
 | 凭据 | 位置 | 用途 | 失效表现 |
 |---|---|---|---|
-| YouTube cookies | `cookies.txt`（仓库根，git 忽略） | yt-dlp 下载鉴权 | `Sign in to confirm you're not a bot` |
+| YouTube cookies | `cookies.txt`（仓库根，git 忽略） | yt-dlp 下载鉴权 | `Sign in to confirm you're not a bot`；先于它出现的是 `The provided YouTube account cookies are no longer valid`（见 §5.2） |
 | B 站会话 | `automation/cookies.json` | biliup 投稿 | 投稿失败，日志提示重新 login |
 | Gemini API Keys | `.env` 的 `GOOGLE_API_KEYS` | 翻译 / LLM 分段 | 翻译阶段报错 |
 
@@ -170,6 +170,33 @@ journalctl -u bili-mover --since "2 days ago" | grep -oP '跳过 \(\K[^)]+' | so
 
 按 §2 重新导出完整 cookie 即可。**但注意换完会引出 5.3 的问题。**
 
+#### 第二种根因：cookie 完整，但已被浏览器轮换作废（2026-09-08 起）
+
+日志里在 `not a bot` 之前会先打这一行 WARNING：
+
+```
+The provided YouTube account cookies are no longer valid. They have likely been
+rotated in the browser as a security measure.
+```
+
+这时 `cookies.txt` 本身是完整的（471 条、有 `LOGIN_INFO`），但 `__Secure-*PSIDTS` 这类会
+轮换的 token 已经被浏览器端刷新，服务端拒认旧值。yt-dlp 认出这一点后按**未登录**处理，
+后面就是同样的 `not a bot` 时好时坏（09-08 ~ 09-14 实测 172 次流水线，73 次失败，约 42%；
+§6 探测脚本 6 次挂 3 次）。
+
+判定方法：
+
+```bash
+journalctl -u bili-mover --since "2 days ago" | grep -c "no longer valid"   # >0 就是这个
+ls -la cookies.txt    # 看导出日期；这次是 09-07 导出、09-08 15:32 首次被拒
+```
+
+处置：只能按 §2 重新导出，**AI 做不了**，需要用户在浏览器里操作。导出后立刻关掉那个
+无痕窗口，否则浏览器很快会再轮换一次把刚导出的作废。
+
+失败的视频不会进 history（`mover.py` 只在投稿成功后 `history.add`），下一轮会自动重试，
+所以不用补投；代价是每轮 `max_uploads_per_cycle` 的配额被失败占掉，产出变慢。
+
 ### 5.3 `Requested format is not available` / 画质悄悄掉到 360p
 
 这两个症状都来自 yt-dlp 的 `player_client` 选择（`backend/engines/media_downloader.py`）。三条互相牵制的约束：
@@ -270,6 +297,26 @@ done
 
 也就是说 **WARP 反而是问题所在**，VPS 自己的 IPv4 出口 Gemini 完全接受。
 
+**2026-09-14 复测，态势又变了**（`scripts/probe_gemini_routes.py`，21:30~21:50）：
+
+| 出口 | Gemini |
+|---|---|
+| `direct-v4`（VPS 原生 IPv4 `45.192.198.87`） | ❌ 0/18 |
+| `default`（服务端分流，原挂 WARP） | ❌ 0/21 |
+| 本地解析 + 钉死 IPv6（VPS 原生 IPv6） | ❌ 连接失败，SOCKS 不通 |
+
+日志回看：`direct-v4` 从 **09-08 起就几乎全拒**（7 天 354 次失败，09-09 一天 41 次失败、
+`default` 0 次失败，说明那天全靠 `default` 兜底）。`default` 从 09-11 起也变成间歇性的，
+约 70% 成功；到 09-14 晚上两条都是 0。表现为：
+
+- 字幕翻译耗尽 6 次重试 → `CLI 失败`（7 天 31 次）
+- 标题翻译耗尽重试 → `Title translation failed, keeping original`，视频**照常投稿但标题是日文**（7 天 13 次）
+
+这是服务端出口的问题，代码侧已经没有别的路径可轮换了。`curl -x socks5h://127.0.0.1:10808
+cloudflare.com/cdn-cgi/trace` 显示 `warp=off`、出口是 VPS 原生 IPv6，即非 google 域名已不走 WARP；
+Gemini 那条（`geosite:google`）的实际出口从本机看不到，要上 3x-ui 查。上面「服务端的根治办法」
+仍然是正解，另外可考虑给 googleapis 单独配一条干净出口。
+
 **注意这个结论是会翻转的。** 代理最初挂 WARP 正是因为 VPS 原生 IP 被 Google 封过；
 现在反了过来，因为 Gemini 是滥用重灾区、WARP 出口段被封得更狠。哪条干净取决于当时的
 封禁态势，不要把任何一条当成永久答案。
@@ -334,6 +381,12 @@ curl -s https://rdap.arin.net/registry/ip/<IP> | python3 -m json.tool | head -20
 ---
 
 ## 6. 验证脚本
+
+Gemini 两条出口的当前成功率：
+
+```bash
+venv/bin/python3 scripts/probe_gemini_routes.py 8     # 每条路径 8 次，打印 ok/n 和第一条错误
+```
 
 **改完 yt-dlp 相关配置后必须实测**，因为同样的配置在不同时间成功率可能完全不同。单次成功不能说明问题，要连测 5 次以上看成功率。
 

@@ -356,10 +356,11 @@ Gemini `default` **8/8**，标题翻译实测 6/6 正确。Gemini 这边就此�
 |---|---|---|
 | WARP 混合 v4/v6（钉之前） | 7/12 | 生产 09-05 也是这个状态，23/25 |
 | WARP 仅 v6（钉之后） | 3/14 | 变差了 |
-| VPS 原生 IPv4（socks5 本地解析 + `-4`） | 0/6 | 4/6 被清会话 |
-| VPS 原生 IPv6（socks5 本地解析 + `-6`） | 0/6 | 会话没被清，但全部 `not a bot` |
+| VPS 原生 IPv4（socks5 本地解析 + `-4`） | 0/6，换 8 个新视频 ID 再测 1/8 | 累计 4/22，约 7/22 次被清会话 |
+| VPS 原生 IPv6（socks5 本地解析 + `-6`） | 测不了 | 本机解析拿不到 AAAA，`No remote IPv6 addresses available`；WARP 掉线期间服务端走原生出口时是 3/8 |
 
-也就是 **Gemini 要 WARP v6，YouTube 要 WARP v4**（至少混着的时候好得多）。一条 WireGuard
+也就是 **Gemini 要 WARP v6，YouTube 要 WARP v4**（至少混着的时候好得多）。「YouTube 干脆不走 WARP」
+用户问过，答案是不行：原生 IPv4 累计 4/22。一条 WireGuard
 出站只能有一个 `domainStrategy`，所以要拆成两条：
 
 1. 复制现有 WARP 出站为两条，密钥/地址/peers 完全一样，tag 分别 `warp-v6`、`warp-v4`，

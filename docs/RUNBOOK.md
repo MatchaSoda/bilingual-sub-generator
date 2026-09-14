@@ -61,25 +61,23 @@ sed 's/\r$//' /mnt/c/Users/<user>/Downloads/cookies.txt > cookies.txt
 chmod 600 cookies.txt
 ```
 
-**校验是否合格**——三条都要过，09-14 就是栽在第 2 条上：
+**校验是否合格**——三条都要过：
 
 ```bash
 # 1. .youtube.com 上必须有 LOGIN_INFO
 grep -P '\tLOGIN_INFO\t' cookies.txt && echo "✅ 已登录态"
 
-# 2. 必须是【新会话】：LOGIN_INFO 的值要和上一份不一样。一样就说明浏览器里还是那个
-#    已经被 Google 作废的旧会话，导多少遍都没用——09-14 22:02 那份就是这样，和 09-07 完全相同
+# 2. 必须是新会话：LOGIN_INFO 的值要和上一份不同。相同说明浏览器里仍是那个已被 Google
+#    作废的会话，重导多少遍都没用；只有在无痕窗口重新登录才能拿到新会话
 for f in cookies.txt cookies.txt.bak-*; do printf "%-40s %s\n" $f \
   "$(awk -F'\t' '$1==".youtube.com" && $6=="LOGIN_INFO"{print $7}' $f | head -1 | sha1sum | cut -c1-8)"; done
 
 # 3. .youtube.com 上应有完整的一方认证组：SID HSID SSID APISID SAPISID __Secure-1PSID ...
-#    只有 __Secure-3P* 的那种是残缺导出（09-07 和 22:02 两份都是），能骗过 yt-dlp 的登录判断，
-#    但服务端不认
+#    只有 __Secure-3P* 的是残缺导出，能过 yt-dlp 的登录判断，但服务端不认
 awk '!/^#/ && NF>=7 && $1 ~ /youtube\.com/ {print $6}' cookies.txt | sort -u
 ```
 
-想拿到新会话，就在**无痕窗口**里重新登录再导出（22:45 那份就是这么来的，16/16）。在平时用的
-浏览器里直接导，拿到的永远是同一个会话。最终以 §6 的实测脚本为准。
+最终以 §6 的实测脚本为准，并且要看到 **0 次**「cookies are no longer valid」警告（见 §5.2）。
 
 ### 更新 B 站会话
 
@@ -180,40 +178,34 @@ journalctl -u bili-mover --since "2 days ago" | grep -oP '跳过 \(\K[^)]+' | so
 
 按 §2 重新导出完整 cookie 即可。**但注意换完会引出 5.3 的问题。**
 
-#### 第二种根因：会话被 Google 作废，重导出来的还是同一个死会话（2026-09-08 ~ 09-14）
+#### 第二种根因：会话被 Google 作废
 
-日志里在 `not a bot` 之前会先打这一行 WARNING：
+`not a bot` 之前先出现这行 WARNING，就是这个：
 
 ```
 The provided YouTube account cookies are no longer valid. They have likely been
 rotated in the browser as a security measure.
 ```
 
-yt-dlp 打它的条件（`_base.py` `_request_webpage`）是：某次响应之后 cookie jar 里的 `LOGIN_INFO`
-没了，即 YouTube 在响应里把会话清掉了。这个会话 09-08 15:32 起就死了，之后 172 次流水线
-73 次失败（约 42%）。那些成功的不是 cookie 起了作用，是**匿名请求碰运气过了风控**——和
-08-29 那次残缺 cookie 的表现一模一样。
+yt-dlp 打它的条件是：某次响应之后 cookie jar 里的 `LOGIN_INFO` 没了，即 YouTube 在响应里
+把会话清掉了。之后同一进程的请求都是匿名请求，成功与否全看风控运气，所以表现同样是
+「时好时坏、成功率 30~50%」。**这时的成功不代表 cookie 在工作。**
 
-**09-14 踩的坑**：用户 22:02 重新导了一份，换上去毫无改善。我当时看到「新 cookie、间歇失败」
-就推断是出口 IP 的问题（见 §5.5 的 09-14 记录），把 YouTube 的失败也算到 WARP 头上——
-**这个推断是错的**。用 awk 逐项比对才发现 22:02 那份的 `LOGIN_INFO` / `__Secure-3PSID` /
-`__Secure-3PSIDTS` 和 09-07 的旧文件**逐字节相同**：浏览器里躺着的还是那个已死的会话，
-重导只是把尸体又抄了一遍。之前用 `while read` 算的哈希把值弄花了，才显得「不一样」。
+两个容易踩的坑：
 
-22:45 用户在无痕窗口重新登录导出的那份，`LOGIN_INFO` 是全新的，`.youtube.com` 上也带齐了
-`SID/HSID/SSID/APISID/SAPISID/__Secure-1P*`（前两份只有 `__Secure-3P*`）。换上后 16/16，
-一次会话清除都没有，此时出口还是 WARP 仅 v6。
+- **重导出来的可能还是同一个死会话。** 在平时用的浏览器里导出，拿到的永远是浏览器当前
+  持有的那个会话；它已经被服务端作废，浏览器自己却不一定表现出来。换上去毫无改善时，
+  先按 §2 第 2 条比对 `LOGIN_INFO`，再去怀疑别的。
+- **不要拿带着死 cookie 的成功率去比较别的变量**（出口、客户端、版本）。那是运气的方差，
+  不是变量的效果。先把警告降到 0，再做别的对比。
 
-判定方法：
+判定：
 
 ```bash
 journalctl -u bili-mover --since "2 days ago" | grep -c "no longer valid"   # >0 就是这个
-# 然后按 §2 第 2 条比对 LOGIN_INFO 是否真的换了
 ```
 
-处置：按 §2 在**无痕窗口重新登录**后导出。导出前先比对 `LOGIN_INFO` 确认是新会话，
-再上 §6 的探测脚本，要看到 **0 次警告** 才算好——成功率 50% 上下、警告时有时无，那是匿名运气，
-不是 cookie 在工作。
+处置：无痕窗口重新登录后按 §2 导出、校验、实测；要看到 0 次警告才算好。
 
 失败的视频不会进 history（`mover.py` 只在投稿成功后 `history.add`），会自动重试，不用补投；
 代价是每轮 `max_uploads_per_cycle` 的配额被失败占掉。
@@ -305,120 +297,62 @@ done
 
 ### 5.5 Gemini 返回 400 `User location is not supported for the API use`
 
-不是 key、配额或代码问题，是**出口 IP 被拒**。判断要点：如果是间歇性的（时好时坏），
-说明请求走了不止一条出口路径。
+不是 key、配额或代码问题，是**出口 IP 被拒**。Gemini 按出口 IP 段拒绝，而且：
 
-实测过的三条出口（2026-08-29）：
+- **哪段干净是会变的。** 同一个出口两周内从全过变成全拒、又从全拒变回可用，都实际发生过。
+  不要把任何一条当成永久答案，也不要在文档里记「X 段可用」这种结论——记方法。
+- **Google 不同服务的黑名单不一样。** 对 Gemini 干净的出口对 YouTube 不一定干净，反之亦然。
+  一边出问题时别顺手改另一边的路由。
+- 间歇性失败（时好时坏）说明请求走了不止一条出口，或者出口在多个 IP 之间轮换。
 
-| 出口 | Gemini |
-|---|---|
-| WARP 的 IPv4 | ❌ 0/16 全拒 |
-| WARP 的 IPv6 | ✅ 可用 |
-| VPS 原生 IPv4 `45.192.198.87` (JP) | ✅ 17/17 |
+#### 代码侧：重试在两条路径间轮换
 
-也就是说 **WARP 反而是问题所在**，VPS 自己的 IPv4 出口 Gemini 完全接受。
-
-**2026-09-14 复测，态势又变了**（`scripts/probe_gemini_routes.py`，21:30~21:50）：
-
-| 出口 | Gemini |
-|---|---|
-| `direct-v4`（VPS 原生 IPv4 `45.192.198.87`） | ❌ 0/18 |
-| `default`（服务端分流，原挂 WARP） | ❌ 0/21 |
-| 本地解析 + 钉死 IPv6（VPS 原生 IPv6） | ❌ 连接失败，SOCKS 不通 |
-
-日志回看：`direct-v4` 从 **09-08 起就几乎全拒**（7 天 354 次失败，09-09 一天 41 次失败、
-`default` 0 次失败，说明那天全靠 `default` 兜底）。`default` 从 09-11 起也变成间歇性的，
-约 70% 成功；到 09-14 晚上两条都是 0。表现为：
-
-- 字幕翻译耗尽 6 次重试 → `CLI 失败`（7 天 31 次）
-- 标题翻译耗尽重试 → `Title translation failed, keeping original`，视频**照常投稿但标题是日文**（7 天 13 次）
-
-原因是服务端 WARP 掉线了：`default` 路径退化成 VPS 原生出口，和 `direct-v4` 一样被拒。
-用户重新挂上 WARP 后（22 点前后）`default` 回到 6/10——**不是 100%，因为 WARP 出口在 v4/v6 之间随机**：
-
-```
-# 看 google 域名这条路的真实出口：dns.google 本身命中 geosite:google，
-# 它把客户端 IP 的 /24 或 /56 以 EDNS Client Subnet 回显在 TXT 里（8 次采样）
-for i in 1 2 3 4 5 6 7 8; do curl -s -x http://127.0.0.1:10808 \
-  "https://dns.google/resolve?name=o-o.myaddr.l.google.com&type=TXT" \
-  | grep -oE 'edns0-client-subnet [^"]+'; done
-#   edns0-client-subnet 2a09:bac5:4303::/56   ← WARP IPv6，5 次   ✅ Gemini 接受
-#   edns0-client-subnet 104.28.243.0/24       ← WARP IPv4，3 次   ❌ Gemini 拒绝（08-29 就 0/16）
-# 换成 socks5 本地解析 + --ipv4，看到的是 45.192.198.0/24 = VPS 原生 IPv4 = direct-v4 路径
-```
-
-这一招解决了之前「Gemini 那条路的出口从本机看不到」的问题，比看 `cloudflare.com/cdn-cgi/trace`
-准（那个域名不走 google 规则）。
-
-三条出口 09-14 的态势：
-
-| 出口 | Gemini | YouTube 带 cookie |
-|---|---|---|
-| WARP IPv6 `2a09:bac5:4303::/56` | ✅ | ✅ 不清会话 |
-| WARP IPv4 `104.28.243.0/24` | ❌ 400 | ❌ 当场清 `LOGIN_INFO`（§5.2） |
-| VPS 原生 IPv4 `45.192.198.87` | ❌ 400（08-29 还是 17/17） | ❌ 清会话，8/8 |
-
-**09-14 23:00 前后把 WARP 出站钉到 `ForceIPv6v4` 之后**：采样 8/8 都是 `2a09:` 段，
-Gemini `default` **8/8**，标题翻译实测 6/6 正确。Gemini 这边就此解决。
-
-**同一晚 YouTube 的一段弯路（结论已推翻，留作教训）**：钉到 v6 后 yt-dlp 探测从 7/12 掉到
-3/14，我据此写了「Gemini 要 WARP v6、YouTube 要 WARP v4，得拆两条出站」。**错了。**那些探测
-用的 cookie 是个已死的会话（§5.2 第二种根因），成功与否全是匿名运气，样本又小，7/12 和 3/14
-只是噪音。换上真正的新会话 cookie 后，**同样的 WARP 仅 v6 出口 YouTube 16/16**。
-
-所以：`ForceIPv6v4` 一条出站就够，**不需要拆路由**。09-14 三条出口的实测里能站住的只有：
-
-| 出口 | Gemini | YouTube（活会话 cookie） |
-|---|---|---|
-| WARP IPv6 `2a09:bac5:4303::/56` | ✅ 8/8 | ✅ 16/16 |
-| WARP IPv4 `104.28.243.0/24` | ❌ 400（08-29 0/16） | 未单独测 |
-| VPS 原生 IPv4 `45.192.198.87` | ❌ 400 | 未用活 cookie 测过 |
-
-教训：**cookie 探测的成功率只有在「0 次会话清除警告」的前提下才能拿来比较出口**。带着死
-cookie 比出口，比的是运气。
-
-代码侧目前只能在 `direct-v4`（全死）和 `default`（掷硬币）之间轮换；WARP v6 钉死后可以考虑把
-`ROUTES` 里的 `direct-v4` 去掉省一次无谓的 2 秒退避，但先别动——VPS 原生 IP 的封禁也是会翻的。
-
-**注意这个结论是会翻转的。** 代理最初挂 WARP 正是因为 VPS 原生 IP 被 Google 封过；
-现在反了过来，因为 Gemini 是滥用重灾区、WARP 出口段被封得更狠。哪条干净取决于当时的
-封禁态势，不要把任何一条当成永久答案。
-
-所以代码侧不押注单条路径，而是让**重试在两条路径间轮换**
-（`backend/utils/gemini_transport.py`）：
+`backend/utils/gemini_transport.py` 不押注单条路径：
 
 | attempt | route | 说明 |
 |---|---|---|
-| 0, 2, 4 | `direct-v4` | 代理换成 `socks5://` 且本地解析 DNS + 钉死 IPv4。服务端只收到 IP 字面量，匹配不上 `geosite:google`，落到直连出站 |
-| 1, 3, 5 | `default` | 保持原有代理环境变量，走服务端正常域名分流（当前挂 WARP） |
+| 0, 2, 4 | `direct-v4` | 代理换成 `socks5://` 且本地解析 DNS + 钉死 IPv4。服务端只收到 IP 字面量，匹配不上按域名的分流规则，落到直连出站 |
+| 1, 3, 5 | `default` | 保持原有代理环境变量，走服务端正常的域名分流 |
 
-任何一条还活着流水线就能跑；某条被封了下一次尝试自动换另一条，**不需要改代码**。
-封禁态势长期变化后想调整优先级，改 `gemini_transport.py` 的 `ROUTES` 顺序即可。
-
-失败日志会带上当时用的路径，便于判断是哪条挂了：
+任何一条还活着流水线就能跑。失败日志带路径名，便于判断哪条挂了：
 
 ```
 ⚠️ Attempt 1 failed (route=direct-v4): ...
 ```
 
-**决定性的是本地解析，不是 IP 版本**——实测 `socks5` 本地解析不加 v4 限制也是 6/6，而
-`socks5h`（服务端解析）加了 v4 限制仍然只有 4/6，因为客户端的限制根本没被用上：
+**决定性的是本地解析，不是 IP 版本**——`socks5` 本地解析不加 v4 限制效果相同，而 `socks5h`
+（服务端解析）加了客户端的 v4 限制也没用，因为解析根本不在客户端发生。钉死 IPv4 只是为了
+不依赖本地解析器恰好把 A 记录排在前面。
 
+想关掉绕行：设 `GEMINI_PROXY=""`，全部尝试走 `default`。想调优先级：改 `ROUTES` 顺序。
+
+#### 判断哪条出口挂了
+
+```bash
+# 两条路径各打 N 次，打印 ok/N 和第一条错误
+venv/bin/python3 scripts/probe_gemini_routes.py 8
 ```
-socks5  本地解析 + 强制v4     6/6
-socks5  本地解析 不限制        6/6
-socks5h 服务端解析 + 强制v4    4/6   ← 客户端限制无效
-http    (原行为)              2/6
+
+两条都是 0/N，说明服务端的出口整体出了问题（比如分流出站掉线、或者所有出口都被封），
+代码侧无解，要去代理服务端处理。
+
+#### 看清「Google 那条路」的真实出口
+
+分流按域名走时，用 `cloudflare.com/cdn-cgi/trace` 之类看到的是别的规则的出口，不是 Google
+那条。`dns.google` 本身命中 Google 域名规则，而它会把客户端网段以 EDNS Client Subnet 回显：
+
+```bash
+# 服务端分流（default 路径）的真实出口网段；多采几次能看出是不是在多个段间轮换
+for i in 1 2 3 4 5 6 7 8; do curl -s -x http://127.0.0.1:10808 \
+  "https://dns.google/resolve?name=o-o.myaddr.l.google.com&type=TXT" \
+  | grep -oE 'edns0-client-subnet [^"]+'; done
+# 本地解析 + --ipv4 看到的就是 direct-v4 路径的出口
+curl -s --ipv4 -x socks5://127.0.0.1:10808 "https://dns.google/resolve?name=o-o.myaddr.l.google.com&type=TXT" \
+  | grep -oE 'edns0-client-subnet [^"]+'
 ```
 
-钉死 IPv4 只是为了不依赖本地解析器恰好把 A 记录排在前面。
-
-想完全关掉绕行（比如服务端已修好分流）：设 `GEMINI_PROXY=""`，此时全部尝试走 `default`。
-想换端口：默认从 `HTTPS_PROXY` 换 scheme 得到，跟着一起变，不用改代码。
-
-**服务端的根治办法**（可选）：在 3x-ui 里加一条优先级高于 `geosite:google` 的规则，把
-`domain:googleapis.com` 指向 direct 出站，并设 `domainStrategy: UseIPv4`。这样浏览器等
-其他客户端也一并受益。注意别把整个 `geosite:google` 从 WARP 摘掉——YouTube 那边还要用。
+把采样结果和探测脚本的成功率对上，就知道该在服务端把 Google 出站钉到哪个网段 / 哪个
+IP 族。钉好后重新采样确认只剩干净的那个段，再跑一次探测脚本。
 
 #### 一个踩过的坑：别拿响应时间推断网络路径
 
@@ -426,20 +360,7 @@ http    (原行为)              2/6
 **这个推理是错的**：400 是 Google 直接拒绝、根本不做模型推理，所以天然就快；200 要真的
 生成内容，慢是推理耗时。LLM 接口的延迟差主要来自推理而非网络跳数，不能当路径指纹用。
 
-要定位路径，用出口身份而不是延迟：
-
-```bash
-# 各模式的出口 IP（socks5=本地解析, socks5h=服务端解析）
-curl -s -x socks5h://127.0.0.1:10808 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)='
-curl -s -x socks5://127.0.0.1:10808 --ipv4 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)='
-# 查出口归属
-curl -s https://rdap.arin.net/registry/ip/<IP> | python3 -m json.tool | head -20
-```
-
-注意这个出口身份是对 `cloudflare.com` 测的。如果分流规则按域名走，它反映不了 Gemini 那条路；
-要看 Gemini 的出口，得临时把一个会回显来源 IP 的域名加进同一条规则。
-
----
+要定位路径，用出口身份而不是延迟，方法见上面「看清 Google 那条路的真实出口」。
 
 ---
 

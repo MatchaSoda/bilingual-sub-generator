@@ -61,15 +61,25 @@ sed 's/\r$//' /mnt/c/Users/<user>/Downloads/cookies.txt > cookies.txt
 chmod 600 cookies.txt
 ```
 
-**校验是否合格**：
+**校验是否合格**——三条都要过，09-14 就是栽在第 2 条上：
 
 ```bash
-# .youtube.com 上必须有 LOGIN_INFO；一方认证组在 .google.com 上是正常的
+# 1. .youtube.com 上必须有 LOGIN_INFO
 grep -P '\tLOGIN_INFO\t' cookies.txt && echo "✅ 已登录态"
+
+# 2. 必须是【新会话】：LOGIN_INFO 的值要和上一份不一样。一样就说明浏览器里还是那个
+#    已经被 Google 作废的旧会话，导多少遍都没用——09-14 22:02 那份就是这样，和 09-07 完全相同
+for f in cookies.txt cookies.txt.bak-*; do printf "%-40s %s\n" $f \
+  "$(awk -F'\t' '$1==".youtube.com" && $6=="LOGIN_INFO"{print $7}' $f | head -1 | sha1sum | cut -c1-8)"; done
+
+# 3. .youtube.com 上应有完整的一方认证组：SID HSID SSID APISID SAPISID __Secure-1PSID ...
+#    只有 __Secure-3P* 的那种是残缺导出（09-07 和 22:02 两份都是），能骗过 yt-dlp 的登录判断，
+#    但服务端不认
 awk '!/^#/ && NF>=7 && $1 ~ /youtube\.com/ {print $6}' cookies.txt | sort -u
 ```
 
-判定标准不是「有没有 SID/HSID」，而是 **yt-dlp 是否把它当登录态**。最终以 §6 的实测脚本为准。
+想拿到新会话，就在**无痕窗口**里重新登录再导出（22:45 那份就是这么来的，16/16）。在平时用的
+浏览器里直接导，拿到的永远是同一个会话。最终以 §6 的实测脚本为准。
 
 ### 更新 B 站会话
 
@@ -170,7 +180,7 @@ journalctl -u bili-mover --since "2 days ago" | grep -oP '跳过 \(\K[^)]+' | so
 
 按 §2 重新导出完整 cookie 即可。**但注意换完会引出 5.3 的问题。**
 
-#### 第二种根因：cookie 完整，但已被浏览器轮换作废（2026-09-08 起）
+#### 第二种根因：会话被 Google 作废，重导出来的还是同一个死会话（2026-09-08 ~ 09-14）
 
 日志里在 `not a bot` 之前会先打这一行 WARNING：
 
@@ -179,33 +189,34 @@ The provided YouTube account cookies are no longer valid. They have likely been
 rotated in the browser as a security measure.
 ```
 
-yt-dlp 打这条警告的条件（`_base.py` `_request_webpage`）是：**某次响应之后 cookie jar 里的
-`LOGIN_INFO` 没了**，也就是 YouTube 在响应里把会话清掉了。字面意思是「浏览器轮换了 token」，
-但 09-14 实测**不是这个原因**——换上当天新导出的 cookie（token 值和旧文件完全不同）照样
-被清，而且是**间歇性**的：同一份文件 6 次探测里 2 次全程没有警告并成功。真正轮换作废的
-cookie 会每一次都被清，不会时有时无。
+yt-dlp 打它的条件（`_base.py` `_request_webpage`）是：某次响应之后 cookie jar 里的 `LOGIN_INFO`
+没了，即 YouTube 在响应里把会话清掉了。这个会话 09-08 15:32 起就死了，之后 172 次流水线
+73 次失败（约 42%）。那些成功的不是 cookie 起了作用，是**匿名请求碰运气过了风控**——和
+08-29 那次残缺 cookie 的表现一模一样。
 
-真因是**出口 IP**：Google 看到会话 cookie 从被标记的 IP 段发来，会当场清掉会话（等同登出），
-随后同一进程的后续请求就是匿名请求，`not a bot` 全看运气。yt-dlp 一次提取要发 3 个请求
-（webpage / client config / player API），任一个落到脏 IP 就中招。出口哪条是脏的见 §5.5，
-判定出口身份的方法也在那里。
+**09-14 踩的坑**：用户 22:02 重新导了一份，换上去毫无改善。我当时看到「新 cookie、间歇失败」
+就推断是出口 IP 的问题（见 §5.5 的 09-14 记录），把 YouTube 的失败也算到 WARP 头上——
+**这个推断是错的**。用 awk 逐项比对才发现 22:02 那份的 `LOGIN_INFO` / `__Secure-3PSID` /
+`__Secure-3PSIDTS` 和 09-07 的旧文件**逐字节相同**：浏览器里躺着的还是那个已死的会话，
+重导只是把尸体又抄了一遍。之前用 `while read` 算的哈希把值弄花了，才显得「不一样」。
 
-数据：09-08 ~ 09-14 生产 172 次流水线，73 次失败（约 42%）；09-14 晚 WARP 掉线期间探测
-8/8 带警告、3/8 成功；用户重新挂上 WARP 之后 6 次里 2 次无警告、4 次成功。
+22:45 用户在无痕窗口重新登录导出的那份，`LOGIN_INFO` 是全新的，`.youtube.com` 上也带齐了
+`SID/HSID/SSID/APISID/SAPISID/__Secure-1P*`（前两份只有 `__Secure-3P*`）。换上后 16/16，
+一次会话清除都没有，此时出口还是 WARP 仅 v6。
 
 判定方法：
 
 ```bash
 journalctl -u bili-mover --since "2 days ago" | grep -c "no longer valid"   # >0 就是这个
-ls -la cookies.txt    # 看导出日期；这次是 09-07 导出、09-08 15:32 首次被拒
+# 然后按 §2 第 2 条比对 LOGIN_INFO 是否真的换了
 ```
 
-处置：先按 §5.5 的方法看 google 域名那条路的出口是不是干净的，**不要先急着重导 cookie**——
-09-14 重导了一份新的，问题一点没变。只有当警告是 100% 出现（每次都被清）时才是 cookie
-真的作废，那时才按 §2 重新导出，导出后立刻关掉无痕窗口。
+处置：按 §2 在**无痕窗口重新登录**后导出。导出前先比对 `LOGIN_INFO` 确认是新会话，
+再上 §6 的探测脚本，要看到 **0 次警告** 才算好——成功率 50% 上下、警告时有时无，那是匿名运气，
+不是 cookie 在工作。
 
-失败的视频不会进 history（`mover.py` 只在投稿成功后 `history.add`），下一轮会自动重试，
-所以不用补投；代价是每轮 `max_uploads_per_cycle` 的配额被失败占掉，产出变慢。
+失败的视频不会进 history（`mover.py` 只在投稿成功后 `history.add`），会自动重试，不用补投；
+代价是每轮 `max_uploads_per_cycle` 的配额被失败占掉。
 
 ### 5.3 `Requested format is not available` / 画质悄悄掉到 360p
 
@@ -350,28 +361,21 @@ for i in 1 2 3 4 5 6 7 8; do curl -s -x http://127.0.0.1:10808 \
 **09-14 23:00 前后把 WARP 出站钉到 `ForceIPv6v4` 之后**：采样 8/8 都是 `2a09:` 段，
 Gemini `default` **8/8**，标题翻译实测 6/6 正确。Gemini 这边就此解决。
 
-**但 YouTube 反了过来**——同一份新 cookie，yt-dlp 探测：
+**同一晚 YouTube 的一段弯路（结论已推翻，留作教训）**：钉到 v6 后 yt-dlp 探测从 7/12 掉到
+3/14，我据此写了「Gemini 要 WARP v6、YouTube 要 WARP v4，得拆两条出站」。**错了。**那些探测
+用的 cookie 是个已死的会话（§5.2 第二种根因），成功与否全是匿名运气，样本又小，7/12 和 3/14
+只是噪音。换上真正的新会话 cookie 后，**同样的 WARP 仅 v6 出口 YouTube 16/16**。
 
-| YouTube 出口 | 成功 | 说明 |
+所以：`ForceIPv6v4` 一条出站就够，**不需要拆路由**。09-14 三条出口的实测里能站住的只有：
+
+| 出口 | Gemini | YouTube（活会话 cookie） |
 |---|---|---|
-| WARP 混合 v4/v6（钉之前） | 7/12 | 生产 09-05 也是这个状态，23/25 |
-| WARP 仅 v6（钉之后） | 3/14 | 变差了 |
-| VPS 原生 IPv4（socks5 本地解析 + `-4`） | 0/6，换 8 个新视频 ID 再测 1/8 | 累计 4/22，约 7/22 次被清会话 |
-| VPS 原生 IPv6（socks5 本地解析 + `-6`） | 测不了 | 本机解析拿不到 AAAA，`No remote IPv6 addresses available`；WARP 掉线期间服务端走原生出口时是 3/8 |
+| WARP IPv6 `2a09:bac5:4303::/56` | ✅ 8/8 | ✅ 16/16 |
+| WARP IPv4 `104.28.243.0/24` | ❌ 400（08-29 0/16） | 未单独测 |
+| VPS 原生 IPv4 `45.192.198.87` | ❌ 400 | 未用活 cookie 测过 |
 
-也就是 **Gemini 要 WARP v6，YouTube 要 WARP v4**（至少混着的时候好得多）。「YouTube 干脆不走 WARP」
-用户问过，答案是不行：原生 IPv4 累计 4/22。一条 WireGuard
-出站只能有一个 `domainStrategy`，所以要拆成两条：
-
-1. 复制现有 WARP 出站为两条，密钥/地址/peers 完全一样，tag 分别 `warp-v6`、`warp-v4`，
-   `domainStrategy` 分别 `ForceIPv6v4` / `ForceIPv4v6`。
-2. 路由规则里在 `geosite:google → warp` 那条**之前**加一条 `domain:googleapis.com → warp-v6`；
-   原来的 `geosite:google` 规则改指向 `warp-v4`。
-3. 验证：`scripts/probe_gemini_routes.py 8` 看 `default` 应 8/8；§6 的 yt-dlp 探测看成功率；
-   `dns.google` 采样此时应显示 `104.28.` 段（它走的是 YouTube 那条）。
-
-注意上表样本都不大，而且探测本身在一小时内从同一个 /56 打了几十个请求，可能把 v6 段
-自己打脏了。拆好之后以生产日志一天的 `CLI 失败` / `should process` 比例为准，别只看探测。
+教训：**cookie 探测的成功率只有在「0 次会话清除警告」的前提下才能拿来比较出口**。带着死
+cookie 比出口，比的是运气。
 
 代码侧目前只能在 `direct-v4`（全死）和 `default`（掷硬币）之间轮换；WARP v6 钉死后可以考虑把
 `ROUTES` 里的 `direct-v4` 去掉省一次无谓的 2 秒退避，但先别动——VPS 原生 IP 的封禁也是会翻的。

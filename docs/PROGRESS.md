@@ -7,20 +7,17 @@
 
 ## 现在的状态
 
-**Gemini 已解决；YouTube 下载还差服务端一次拆路由。**
+**两个问题都已解决，等 09-15 生产日志确认。**
 
-09-14 查下来两个症状都出在给 google 域名用的 WARP 出口上，但方向相反：
-
-- **Gemini**：WARP IPv4 段被拒、IPv6 段干净、VPS 原生 IPv4 这次也被拒。用户把 WARP 出站钉到
-  `ForceIPv6v4` 后 `default` 路径 8/8，标题翻译实测 6/6。**已解决。**`direct-v4` 路径现在全死，
-  每次白付一次 2 秒退避，先不动（VPS 原生 IP 的封禁也会翻）。
-- **YouTube**：`cookies are no longer valid` 不是 cookie 作废，是 Google 按出口 IP 当场清会话。
-  换了 09-14 新导出的 cookie 没有任何改善（已换上，旧的在 `cookies.txt.bak-20260914`）。
-  实测 WARP 混合 v4/v6 时 7/12，钉到仅 v6 后掉到 3/14，VPS 原生 v4/v6 都是 0/6。
-  **待用户做**：把 WARP 拆成 `warp-v6`（只给 `googleapis.com`）和 `warp-v4`（其余 google 域名）
-  两条出站，步骤在 RUNBOOK §5.5 末尾。拆完先跑探测，再看一天生产日志。
-- 诊断出口身份的方法（`dns.google` 的 EDNS Client Subnet 回显）在 §5.5，以后不用猜。
-- 上面 YouTube 的探测样本小，且探测本身可能把 v6 段打脏了，结论以拆路由后的生产数据为准。
+- **Gemini**：给 google 域名用的 WARP 出口在 IPv4（被拒）和 IPv6（干净）之间随机，VPS 原生 IPv4
+  这次也被拒。用户把 WARP 出站钉到 `ForceIPv6v4` 后 `default` 路径 8/8，标题翻译实测 6/6。
+  `direct-v4` 路径现在全死，每次白付一次 2 秒退避，先不动。
+- **YouTube**：是 cookie。09-07 的会话 09-08 起被 Google 作废；22:02 重导的那份和旧文件是
+  **同一个会话**（`LOGIN_INFO` 逐字节相同），所以没用。22:45 在无痕窗口重新登录导的那份是新
+  会话，换上后 16/16、0 次会话清除。**我中途曾把 YouTube 的失败归到 WARP v6 上并建议拆路由，
+  那是错的，已在 RUNBOOK §5.2 / §5.5 里写明，不需要拆。**
+- 下一步只剩看 09-15 生产日志：`CLI 失败` 应基本归零，`no longer valid` 应为 0。
+- 旧文件：`cookies.txt.bak-20260914`（09-07 会话）、`cookies.txt.bak-20260914-2245`（22:02 同一会话）。
 
 ## 2026-09-14 这次做了什么
 

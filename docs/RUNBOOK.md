@@ -323,7 +323,7 @@ done
 - 标题翻译耗尽重试 → `Title translation failed, keeping original`，视频**照常投稿但标题是日文**（7 天 13 次）
 
 原因是服务端 WARP 掉线了：`default` 路径退化成 VPS 原生出口，和 `direct-v4` 一样被拒。
-用户重新挂上 WARP 后（22:30）`default` 回到 6/10——**不是 100%，因为 WARP 出口在 v4/v6 之间随机**：
+用户重新挂上 WARP 后（22 点前后）`default` 回到 6/10——**不是 100%，因为 WARP 出口在 v4/v6 之间随机**：
 
 ```
 # 看 google 域名这条路的真实出口：dns.google 本身命中 geosite:google，
@@ -347,10 +347,30 @@ for i in 1 2 3 4 5 6 7 8; do curl -s -x http://127.0.0.1:10808 \
 | WARP IPv4 `104.28.243.0/24` | ❌ 400 | ❌ 当场清 `LOGIN_INFO`（§5.2） |
 | VPS 原生 IPv4 `45.192.198.87` | ❌ 400（08-29 还是 17/17） | ❌ 清会话，8/8 |
 
-**服务端该做的**：把 google 域名那条 WARP 出站钉到 IPv6（xray 的 wireguard 出站
-`domainStrategy: ForceIPv6`，或 3x-ui 里对应的「IPv6 优先/仅 IPv6」）。08-29 用户试过 ForceIPv4
-把成功率打到 0，方向反了；正确方向是 v6。钉好后用上面的 8 次采样确认全是 `2a09:` 段，
-再跑 `scripts/probe_gemini_routes.py 8` 和 §6 的 yt-dlp 探测，两个都应接近 100%。
+**09-14 23:00 前后把 WARP 出站钉到 `ForceIPv6v4` 之后**：采样 8/8 都是 `2a09:` 段，
+Gemini `default` **8/8**，标题翻译实测 6/6 正确。Gemini 这边就此解决。
+
+**但 YouTube 反了过来**——同一份新 cookie，yt-dlp 探测：
+
+| YouTube 出口 | 成功 | 说明 |
+|---|---|---|
+| WARP 混合 v4/v6（钉之前） | 7/12 | 生产 09-05 也是这个状态，23/25 |
+| WARP 仅 v6（钉之后） | 3/14 | 变差了 |
+| VPS 原生 IPv4（socks5 本地解析 + `-4`） | 0/6 | 4/6 被清会话 |
+| VPS 原生 IPv6（socks5 本地解析 + `-6`） | 0/6 | 会话没被清，但全部 `not a bot` |
+
+也就是 **Gemini 要 WARP v6，YouTube 要 WARP v4**（至少混着的时候好得多）。一条 WireGuard
+出站只能有一个 `domainStrategy`，所以要拆成两条：
+
+1. 复制现有 WARP 出站为两条，密钥/地址/peers 完全一样，tag 分别 `warp-v6`、`warp-v4`，
+   `domainStrategy` 分别 `ForceIPv6v4` / `ForceIPv4v6`。
+2. 路由规则里在 `geosite:google → warp` 那条**之前**加一条 `domain:googleapis.com → warp-v6`；
+   原来的 `geosite:google` 规则改指向 `warp-v4`。
+3. 验证：`scripts/probe_gemini_routes.py 8` 看 `default` 应 8/8；§6 的 yt-dlp 探测看成功率；
+   `dns.google` 采样此时应显示 `104.28.` 段（它走的是 YouTube 那条）。
+
+注意上表样本都不大，而且探测本身在一小时内从同一个 /56 打了几十个请求，可能把 v6 段
+自己打脏了。拆好之后以生产日志一天的 `CLI 失败` / `should process` 比例为准，别只看探测。
 
 代码侧目前只能在 `direct-v4`（全死）和 `default`（掷硬币）之间轮换；WARP v6 钉死后可以考虑把
 `ROUTES` 里的 `direct-v4` 去掉省一次无谓的 2 秒退避，但先别动——VPS 原生 IP 的封禁也是会翻的。

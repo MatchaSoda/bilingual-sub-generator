@@ -77,6 +77,8 @@
   （导入自动关 ENABLE_AUTOMATION、删 .setup-done、拒绝覆盖已有配置除非 --force）。在干净的仓库副本里导入后 check 6/6。
 - 向导第 1 步先探直连，通了默认直连。构建失败自动重试一次并给 DNS / 基础镜像的提示。
 - 纠正：buildx 不会把 shell 的代理变量带进构建（实测），CLAUDE.md 之前那条建议已改。
+- 用户提醒「权限不能一刀切，也要考虑裸机用户」：PUID 改为分情形推导（sudo 取 SUDO_UID、Windows 不传、root 登录就 root、
+  `PUID=` 可强制 root、非数字兜底 root），裸机路径完全不涉及；README 方式 B 补齐 Chromium / Noto CJK / Xvfb 依赖和向导步骤。
 
 ### 仍未验证（需要凭据）
 

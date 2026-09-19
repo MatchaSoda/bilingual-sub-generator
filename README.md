@@ -23,31 +23,38 @@
 
 向导会逐步验证每项配置。换机器：旧机 `./docker-start.sh export`，新机 `./docker-start.sh import <包>` 再 `./docker-start.sh`。详见 [docs/DOCKER.md](./docs/DOCKER.md)。
 
-### 方式 B：裸机安装
+### 方式 B：裸机安装（直接跑在自己电脑 / 服务器上）
 
-### 1. 环境准备
+#### 1. 系统依赖
 
-确保你的系统已安装 `Python 3.10+`, `Node.js 18+` 和 `FFmpeg`。
+| 需要 | 干什么用 | 缺了会怎样 |
+|---|---|---|
+| Python 3.10+、Node.js 18+ | 后端 / 前端构建 | 起不来 |
+| FFmpeg | 压制 | 起不来 |
+| Chrome 或 Chromium | yt-dlp 取 PO Token（`yt-dlp-getpot-wpc` 会拉起一个真实浏览器） | 能跑，但 YouTube 只给 360p |
+| Noto Sans CJK 字体（Debian/Ubuntu：`fonts-noto-cjk`） | 字幕样式写死了这个字体 | ffmpeg 静默换字体，出现方块 |
+| 无桌面的 Linux 服务器：Xvfb | 上面那个浏览器不是 headless 的，需要一个显示 | 拿不到 PO Token，同上 360p |
 
-### 2. 初始化项目
+JS 运行时（yt-dlp 解 YouTube 挑战用的 deno）随 `pip install` 一起装，不用单独装。
+
+#### 2. 初始化
 
 ```bash
-# 安装 Python 依赖 (建议在 venv 中)
-pip install -r requirements.txt
-
-# 安装前端依赖 (在 frontend 目录下)
+python3 -m venv venv && venv/bin/pip install -r requirements.txt   # 一定要用仓库根的 venv，脚本都按这个路径找解释器
 cd frontend && npm install && cd ..
+venv/bin/python3 scripts/setup_wizard.py                            # 和 Docker 同一个向导：代理 / Gemini key / cookie / 频道，逐项联网验证
 ```
 
-### 3. 运行系统
+向导把配置写到仓库根的 `.env`、`cookies.txt` 和 `automation/config.json`。以后想体检：`venv/bin/python3 scripts/setup_wizard.py --check`。
 
-直接运行根目录下的启动脚本：
+#### 3. 运行
 
 ```bash
-bash start.sh
+bash start.sh              # Web 界面 http://localhost:8501（首次会构建前端）
 ```
 
-访问 `http://localhost:8501` 即可进入 Web 管理界面。
+自动搬运（常驻扫描频道 → 投稿 B 站）以 systemd 服务方式运行，模板在 `automation/bili-mover.service`，操作见 [docs/RUNBOOK.md](./docs/RUNBOOK.md) §1。
+裸机上所有文件都是你自己的用户创建的，没有 Docker 那种属主问题。
 
 ## 📖 文档与 Wiki
 

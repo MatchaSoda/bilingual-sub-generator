@@ -112,10 +112,20 @@ git clone <仓库> && cd bilingual-sub-generator
   CUDA 基础镜像并把 `transcription_engine.py` 的 device 改成 cuda，目前没做。
 - **`data/downloads` 会无限增长。** 中间产物（.asr.json / .translated.json）是缓存，删了会重算。
   磁盘紧张时删里面的 .mp4 / .wav 即可。
-- **容器以你的 uid 运行**（`docker-start.sh` 把 `id -u`/`id -g` 传成 `PUID`/`PGID`，entrypoint 用 setpriv 降权），
-  所以 `userdata/`、`data/` 里生成的文件属主是你。直接用 `docker compose` 而不经过脚本时不设这两个变量
-  = 以 root 运行，Linux 上文件会变 root 属主，之后 `sudo chown -R $USER userdata data` 一次。
+- **容器以谁的身份运行**由 `PUID`/`PGID` 决定，`docker-start.sh` 按情形自动填，目的是让 `userdata/`、`data/`
+  里生成的文件属主是操作这台机器的人：
+
+  | 情形 | 结果 |
+  |---|---|
+  | 普通用户运行脚本 | 自己的 uid/gid（macOS 是 501，Linux 通常 1000） |
+  | `sudo ./docker-start.sh` | 取 `SUDO_UID`/`SUDO_GID`，文件仍归你而不是 root |
+  | root 登录的服务器 | root，文件归 root |
+  | Windows（Git Bash） | 不传，按 root 跑；Windows 的 bind mount 不讲属主 |
+  | 想自己指定 | `PUID=1000 PGID=1000 ./docker-start.sh`；`PUID= ./docker-start.sh` 强制 root |
+
+  不经脚本直接 `docker compose up` 时这两个变量为空 = root 运行；Linux 上事后 `sudo chown -R $USER userdata data` 一次即可。
   非 root 下 Chromium 靠 `/etc/chromium.d/no-sandbox` 里的 `--no-sandbox` 启动（Docker 默认 seccomp 不给用户命名空间）。
+  裸机部署（README 方式 B）不涉及这些，文件本来就是你的。
 - **资源。** 镜像 3 GB + 模型 1.6 GB + 每个视频的中间产物几十 MB；内存高峰约 2 GB（large-v3-turbo int8）。
   给 Docker 至少 4 GB 内存、10 GB 磁盘。容器日志已限制在 5×20 MB 轮转，PID 1 是 tini（`init: true`）负责回收
   每个任务留下的 chromium 僵尸进程。

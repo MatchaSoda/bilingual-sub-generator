@@ -91,3 +91,9 @@ frontend/tests/playwright/debug_*.html
 # 运行期备份 / 轮转日志（history、cookies、ds_update 等），保持 git status 干净
 *.bak-*
 automation/*.log.*
+
+# ==============================
+# Docker 部署的用户数据（凭据 + 运行状态）
+# ==============================
+userdata/*
+!userdata/README.md

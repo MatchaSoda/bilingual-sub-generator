@@ -1,0 +1,54 @@
+# 双语字幕生成器 · Docker 编排
+#
+# 日常只需要 ./docker-start.sh（它会按需构建、跑向导、起服务）。手工命令：
+#   docker compose run --rm setup                  首次设置向导（交互式）
+#   docker compose up -d                           只起 Web 界面 http://localhost:8501
+#   docker compose --profile automation up -d      Web + 自动搬运
+#   docker compose logs -f mover                   看搬运日志
+#
+# 所有用户数据在宿主机的 ./userdata（.env、cookies、config.json、history.json、产出视频），
+# 下载缓存在 ./data，Whisper 模型在命名卷 whisper-models。镜像可随意重建。
+
+x-app: &app
+  image: bilingual-sub-generator:latest
+  build: .
+  env_file:
+    - userdata/.env
+  environment:
+    # 用户数据目录：mover.py 的 config/history/cookies.json/产出，settings.py 的 cookies.txt
+    AUTOMATION_STATE_DIR: /app/userdata
+    YT_COOKIES_FILE: /app/userdata/cookies.txt
+    HF_HOME: /models
+  volumes:
+    - ./userdata:/app/userdata
+    - ./data:/app/data
+    - whisper-models:/models
+  extra_hosts:
+    # 让容器里的 host.docker.internal 指向宿主机（Docker Desktop 自带；Linux 需要这一行）
+    - "host.docker.internal:host-gateway"
+  # Chromium 在容器默认 64MB 的 /dev/shm 里会崩
+  shm_size: "1gb"
+
+services:
+  web:
+    <<: *app
+    command: ["web"]
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+
+  mover:
+    <<: *app
+    command: ["mover"]
+    restart: unless-stopped
+    profiles: ["automation"]
+
+  setup:
+    <<: *app
+    command: ["setup"]
+    stdin_open: true
+    tty: true
+    profiles: ["setup"]
+
+volumes:
+  whisper-models:

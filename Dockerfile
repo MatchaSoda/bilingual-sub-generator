@@ -48,6 +48,10 @@ RUN python -m venv /app/venv \
 # Hugging Face 下载走普通 HTTPS 而不是 xet 分块协议：xet 经代理时收尾环节会无限期挂住（09-19 实测，
 # 文件已完整仍卡 17 分钟），普通 HTTPS 有读超时 + Range 续传，卡了会自己重试。见 docs/RUNBOOK.md §5.6。
 ENV HF_HUB_DISABLE_XET=1
+# Debian 的 /usr/bin/chromium 启动脚本会 source /etc/chromium.d/*。以非 root 运行时 Chrome 的沙箱在
+# Docker 默认 seccomp 下起不来（需要 user namespace），而 PO Token 插件不接受额外浏览器参数，
+# 所以在这里全局加 --no-sandbox。root 运行时 nodriver 本来就会加这个参数，无影响。
+RUN printf 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"\n' > /etc/chromium.d/no-sandbox
 COPY backend/ ./backend/
 COPY automation/mover.py automation/backfill.py automation/config.json.example ./automation/
 COPY scripts/ ./scripts/

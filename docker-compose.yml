@@ -19,6 +19,17 @@ x-app: &app
     AUTOMATION_STATE_DIR: /app/userdata
     YT_COOKIES_FILE: /app/userdata/cookies.txt
     HF_HOME: /models
+    # 以宿主机用户身份跑（docker-start.sh 自动填 id -u / id -g），这样 userdata/ 和 data/ 里生成的文件
+    # 属主是你而不是 root。不设 = 以 root 运行（旧行为）。entrypoint 用 setpriv 降权。
+    PUID: ${PUID:-}
+    PGID: ${PGID:-}
+  # PID 1 用 tini：每个任务都会留下几个 chromium <defunct>，没人回收会越积越多
+  init: true
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
   volumes:
     - ./userdata:/app/userdata
     - ./data:/app/data

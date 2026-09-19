@@ -157,8 +157,8 @@ exclude 含 "every"
 
 ### 起点水位：`backfill.mode`（新账号 / 新部署必看）
 
-`playlist_items` 故意开到 100，是为了服务停机几天后能把漏掉的视频追回来。副作用是**新账号第一次启动会把
-频道最近 100 个存货全搬上去**；迁移时如果没带 `history.json` 也一样。`config.json` 的 `backfill` 段控制这件事：
+`playlist_items` 故意开得很大（example 300，生产也是 300），是为了服务停机几天后能把漏掉的视频追回来。
+副作用是**新账号第一次启动会把频道最近这几百个存货全搬上去**；迁移时如果没带 `history.json` 也一样。`config.json` 的 `backfill` 段控制这件事：
 
 | `mode` | 行为 | 用在 |
 |---|---|---|

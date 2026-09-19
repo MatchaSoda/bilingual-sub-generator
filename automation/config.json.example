@@ -4,7 +4,7 @@
       "name": "日テレNEWS",
       "url": "https://www.youtube.com/@ntv_news/videos",
       "keyword": "#newsevery",
-      "exclude": ["死", "火災", "殺", "害", "児", "遺棄"],
+      "exclude": ["死", "火災", "殺", "害", "児", "遺棄", "遺体", "逮捕", "議員", "党", "天皇", "every"],
       "bili_tid": 208,
       "tags": "日语学习,双语字幕,日本,日本新闻,日常"
     }
@@ -14,17 +14,17 @@
     "lookback_hours": 24
   },
   "check_interval_seconds": 1800,
-  "playlist_items": 100,
-  "description_fetch_interval_seconds": 3,
+  "playlist_items": 300,
+  "description_fetch_interval_seconds": 4,
   "max_uploads_per_cycle": 3,
   "processing": {
     "whisper_model": "large-v3-turbo",
     "segment_mode": "rule",
     "gemini_model": "gemini-3.1-flash-lite",
-    "translation_batch_size": 200,
+    "translation_batch_size": 100,
     "enable_furigana": true,
     "translate_title": true,
-    "fix_source_text": false
+    "fix_source_text": true
   },
   "upload": {
     "line": "tx",

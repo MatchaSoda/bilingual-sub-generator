@@ -572,9 +572,10 @@ def step_automation(env, report_only=False):
         per_cycle = ask("每轮最多处理几个视频（防止首轮把整个频道都搬了）", str(cfg.get("max_uploads_per_cycle", 3)))
         cfg["max_uploads_per_cycle"] = int(per_cycle) if per_cycle.isdigit() else 3
 
-        note("""
-频道页会扫最近 100 个视频。这个窗口故意开得很大，是为了服务停机几天后能把漏掉的都补上；
-但对一个新账号来说，第一次启动就会把这 100 个存货全搬上去。
+        window = cfg.get("playlist_items", 100)
+        note(f"""
+每轮会扫频道最近 {window} 个视频（playlist_items）。这个窗口故意开得很大，是为了服务停机几天后能把
+漏掉的都补上；但对一个新账号来说，第一次启动就会把这 {window} 个存货全搬上去。
         """)
         start_choice = ask_choice("这个 B 站账号之前搬过这些频道吗？", [
             ("没有，全新开始", "只处理从现在起发布的视频（往前多算几小时兜底），以后重启也不会推后这个起点"),

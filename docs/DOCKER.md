@@ -76,7 +76,7 @@ Gemini key 也可以在 Web 界面「系统设置」里填，后端会写到 `us
   多试几次总能拉下来，之后 build 就只用本地缓存。Dockerfile 已去掉 `# syntax=docker/dockerfile:1`
   指令，否则 BuildKit 每次 build 都要去远端解析这个 frontend 镜像，撞上同一个超时。
 - **迁移时把 `history.json` 一起带过来，或者把 `config.json` 的 `backfill.mode` 设成 `since_first_start`。**
-  两样都没有，第一轮就会把频道最近 100 个视频全部重新投一遍（RUNBOOK §4「起点水位」）。
+  两样都没有，第一轮起就会把频道最近 `playlist_items` 个（example 是 300）视频全部重新投一遍（RUNBOOK §4「起点水位」）。
 - **YouTube cookie 不是可选项。** 生产用的 `mweb` 客户端没有登录 cookie 时，YouTube 直接返回
   `Sign in to confirm you're not a bot`——日本直连和经代理都一样（09-19 实测）。所以向导第 3 步的
   cookie 必须给，否则 Web 界面能开但提交任务必失败。

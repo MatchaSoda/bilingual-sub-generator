@@ -25,11 +25,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 常用命令
 
+两套部署方式：**裸机**（WSL2 生产机，venv 在仓库根）和 **Docker**（macOS 开发机，venv 在容器 `/app/venv`）。
+先看 `.git` 旁边有没有 `venv/`：没有就是 Docker 机，下面的命令都要套进容器跑。
+
 所有 Python 命令都用仓库内的 venv，**不要用系统 python3**（依赖只装在 venv 里）：
 
 ```bash
-# 测试（27 个用例，unittest，约 1 秒）
+# 测试（51 个用例，unittest，约 1 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
 bash run_tests.sh
+# Docker 机上的等价写法（测试需要一个占位 key）
+docker compose run --rm -T -e GOOGLE_API_KEYS=x setup bash -c 'cd /app/backend && /app/venv/bin/python3 -m unittest discover -s tests -p "test_*.py"'
 # 跑单个测试文件 / 单个用例
 cd backend && ../venv/bin/python3 -m unittest tests.test_segment_optimizer -v
 cd backend && ../venv/bin/python3 -m unittest tests.test_segment_optimizer.ClassName.test_method
@@ -45,7 +50,9 @@ cd backend && ../venv/bin/python3 entry_cli.py "<youtube_url>" --segment-mode ru
 cd frontend && npm run build && npm run lint
 ```
 
-Docker 部署：`./docker-start.sh`（首次进向导）、`./docker-start.sh check`（体检配置）。
+Docker 部署：`./docker-start.sh`（首次进向导；改了 `userdata/.env` 后也用它，它会重建容器，`docker compose restart` 不会重读 env）、
+`./docker-start.sh check`（体检配置）、`./docker-start.sh shell`（进容器）。任何要在容器里跑的一次性命令用
+`docker compose run --rm -T setup bash -c '...'`；改了 `backend/` 或 `scripts/` 要 `docker compose build` 后 `up -d` 才生效（代码是 COPY 进镜像的，不是挂载）。
 
 自动化服务的操作命令见 `docs/RUNBOOK.md`（涉及 systemd 和状态文件，有顺序要求）。
 
@@ -111,7 +118,7 @@ entry_cli.py  ──►  media_downloader (yt-dlp)
 <scope>: <小写祈使句，不加句号>
 ```
 
-- scope 用 `backend` / `automation` / `deps` / `docs`
+- scope 用 `backend` / `automation` / `deps` / `docs` / `docker`
 - 长度控制在 50~80 字符
 - 描述**做了什么**，不是「修了 bug」
 
@@ -134,8 +141,10 @@ wrong -- ...」。这类记录比结论本身更有价值。
 
 ### Trailer
 
+用当前实际在写代码的模型名，不要照抄别人的：
+
 ```
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Co-Authored-By: <实际模型名> <noreply@anthropic.com>
 ```
 
 ### 不要做的事
@@ -146,6 +155,17 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 
 ## 环境约束
 
-- WSL2 环境，代理在 `127.0.0.1:10808`。**这个端口是 SOCKS5，不是 HTTP**——`http://127.0.0.1:10808` 对部分站点可用、对另一些会连接失败，这已经造成过线上故障，详见 runbook。
+### 裸机生产机（WSL2，跑着 `bili-mover.service`）
+
+- 代理在 `127.0.0.1:10808`。**这个端口是 SOCKS5，不是 HTTP**——`http://127.0.0.1:10808` 对部分站点可用、对另一些会连接失败，这已经造成过线上故障，详见 runbook。
 - systemd 服务的环境变量里同时有 `HTTP_PROXY`(http://) 和 `ALL_PROXY`(socks5://)，子进程会继承，注意这对 `biliup` 的影响。
 - `sudo systemctl` 需要密码，AI 无法直接执行，需要请用户在会话里用 `! sudo systemctl ...` 运行。
+
+### Docker 开发机（macOS，Apple Silicon，Docker Desktop）
+
+- 代理是 Clash Verge 混合端口 `127.0.0.1:7897`，shell 里有 `HTTP_PROXY=http://127.0.0.1:7897`。容器里要写
+  `http://host.docker.internal:7897`（已在 `userdata/.env`）。跑 `docker compose build` 前把这几个变量去掉
+  （`env -u HTTP_PROXY -u HTTPS_PROXY docker compose ...`），免得 127.0.0.1 被带进构建容器。
+- 宿主机 DNS 是 114.114.114.114，会把 `auth.docker.io` 解析到 Dropbox 网段，拉镜像偶发 `i/o timeout`，重试即可（DOCKER.md §4）。
+- 容器直连和经代理都能到 YouTube；但没有 cookie 时 mweb 客户端一律 `not a bot`，别拿无 cookie 的结果判断网络。
+- 镜像是原生 arm64，biliup 有 aarch64 wheel，不要加 `platform: linux/amd64`。

@@ -30,7 +30,7 @@ Windows 在 **WSL 终端或 Git Bash** 里运行脚本。
 
 ```
 userdata/            ← 你的全部数据，git 忽略，备份这个目录就够
-  .env               Gemini key / 代理 / 开关       （模板 docker/env.example）
+  .env               Gemini key / 代理 / 开关       （模板 docker/env.example；Web 界面填的 key 也写在这）
   cookies.txt        YouTube cookie
   cookies.json       B 站登录信息
   config.json        搬运频道与规则                  （模板 automation/config.json.example）
@@ -58,7 +58,9 @@ docker volume whisper-models   Whisper 模型缓存
 | 进容器排查 | `./docker-start.sh shell` |
 | 补投单个视频 | `docker compose run --rm setup bash -c "cd automation && ../venv/bin/python3 backfill.py <url>"` |
 
-手改了 `userdata/.env` 后要 `docker compose restart`（env_file 只在容器创建时读）。
+手改了 `userdata/.env` 后重新执行 `./docker-start.sh`（它跑的是 `docker compose up -d`，配置变了会自动
+重建容器）。**`docker compose restart` 不行**——env_file 只在容器创建时读，restart 不重建，容器里还是旧值（09-19 实测）。
+Gemini key 也可以在 Web 界面「系统设置」里填，后端会写到 `userdata/.env` 并立即对新任务生效，不用重启。
 手改 `userdata/config.json` 不用重启，下一轮扫描生效（同裸机）。
 
 ## 4. 已知限制与坑

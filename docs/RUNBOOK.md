@@ -48,6 +48,15 @@ journalctl -u bili-mover -f | grep -E "should process|投稿成功|投稿失败|
 | B 站会话 | `automation/cookies.json` | biliup 投稿 | 投稿失败，日志提示重新 login |
 | Gemini API Keys | `.env` 的 `GOOGLE_API_KEYS` | 翻译 / LLM 分段 | 翻译阶段报错 |
 
+Docker 部署下这三样都在 `userdata/`：`userdata/cookies.txt`、`userdata/cookies.json`、`userdata/.env`。
+下面的裸机命令在 Docker 里的对应写法：
+
+```bash
+./docker-start.sh check                                   # 验 cookie / key / 代理，替代下面手工 grep 的大部分
+docker compose run --rm setup bash -c "cd /app/automation && ../venv/bin/biliup login"   # B 站扫码
+./docker-start.sh shell                                   # 进容器，之后 §6 的探测脚本按原样跑（venv 在 /app/venv）
+```
+
 ### 更新 YouTube cookies
 
 导出要求 —— **必须是完整导出**，半残的 cookie 比没有更糟（见 §5.2）：
@@ -55,7 +64,7 @@ journalctl -u bili-mover -f | grep -E "should process|投稿成功|投稿失败|
 1. 浏览器开**无痕窗口** → 登录 YouTube
 2. 用 cookie 导出扩展导出 **全部** cookie（Netscape 格式）
 3. **立刻关掉无痕窗口**，不要再访问 YouTube（否则浏览器会轮换 token，把导出的那份作废）
-4. 覆盖到仓库根 `cookies.txt`，去掉 Windows CRLF，权限设 600
+4. 覆盖到仓库根 `cookies.txt`（Docker：`userdata/cookies.txt`），去掉 Windows CRLF，权限设 600
 
 ```bash
 cp cookies.txt cookies.txt.bak-$(date +%Y%m%d)

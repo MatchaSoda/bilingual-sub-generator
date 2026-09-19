@@ -31,6 +31,11 @@
 - `./docker-start.sh check` 原来执行 `docker compose run --rm setup --check`，compose 的 `run` 会把后面的参数
   **整个替换** command，容器收到的 `$1` 是 `--check`，entrypoint 兜底分支 `exec --check` 直接报错。
   改成 `run --rm setup setup --check`，entrypoint 也加了 `--*)` 分支兜底。
+- Web 界面「系统设置」的 `/api/config` 把 key 写到 `BASE_DIR/.env`，在容器里就是 `/app/.env`——不在挂载的
+  `userdata/`，重建容器就丢。改为 `settings.ENV_FILE`（跟随 `AUTOMATION_STATE_DIR`）。顺带修了 POST 更新
+  内存 key 管理器时用错属性名（`keys`/`current_index` → `active_api_keys`/`next_key_index`）。
+- `docker compose restart` 不会重新读 `userdata/.env`（实测：改值后 restart，容器里还是旧值；`up -d` 会 Recreate）。
+  DOCKER.md / env.example 里「改完 restart」的说法已改成重新 `./docker-start.sh`。
 
 ### 仍未验证（需要凭据）
 

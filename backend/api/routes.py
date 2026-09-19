@@ -3,19 +3,20 @@ import time
 import os
 from datetime import datetime
 from pathlib import Path
-from dotenv import set_key, load_dotenv
+from dotenv import set_key
 from api.schemas import SubtitleRequest
 from services.job_manager import global_job_manager
-from config.settings import DOWNLOADS_DIR, BASE_DIR
+from config.settings import DOWNLOADS_DIR, ENV_FILE
+from config.keys import key_manager, read_google_api_keys
 from utils.thumbnail_helper import ensure_thumbnail
 
 api_router = APIRouter()
-ENVIRONMENT_VARIABLES_FILE = BASE_DIR / ".env"
+# 裸机 = 仓库根 .env；Docker = userdata/.env（AUTOMATION_STATE_DIR），见 config/settings.py
+ENVIRONMENT_VARIABLES_FILE = ENV_FILE
 
 @api_router.get("/config")
 async def fetch_current_configuration():
-    load_dotenv(ENVIRONMENT_VARIABLES_FILE)
-    raw_api_keys_string = os.getenv("GOOGLE_API_KEYS", "")
+    raw_api_keys_string = read_google_api_keys()
     
     masked_keys_for_display = []
     for individual_key in raw_api_keys_string.split(","):
@@ -34,14 +35,14 @@ async def fetch_current_configuration():
 async def update_google_api_keys(configuration_update: dict):
     new_api_keys_string = configuration_update.get("google_api_keys", "").strip()
     try:
-        set_key(str(ENVIRONMENT_VARIABLES_FILE), "GOOGLE_API_KEYS", new_api_keys_string)
+        set_key(str(ENVIRONMENT_VARIABLES_FILE), "GOOGLE_API_KEYS", new_api_keys_string, quote_mode="never")
+        # entry_cli.py 子进程继承 os.environ（job_manager 用 os.environ.copy()），所以这里必须同步更新
         os.environ["GOOGLE_API_KEYS"] = new_api_keys_string
-        
-        from config.keys import key_manager
-        key_manager.keys = [key.strip() for key in new_api_keys_string.split(",") if key.strip()]
-        key_manager.current_index = 0
-        
-        return {"status": "updated", "count": len(key_manager.keys)}
+
+        key_manager.active_api_keys = [key.strip() for key in new_api_keys_string.split(",") if key.strip()]
+        key_manager.next_key_index = 0
+
+        return {"status": "updated", "count": len(key_manager.active_api_keys)}
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Failed to persist configuration: {str(error)}")
 

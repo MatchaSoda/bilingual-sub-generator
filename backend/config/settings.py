@@ -2,9 +2,13 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).parent.parent.parent
+
+# .env 的位置：裸机在仓库根；Docker 部署下 AUTOMATION_STATE_DIR 指向挂载出来的 userdata/，
+# Web 界面「系统设置」写 key 也写到这里，否则写进容器自己的文件系统，重建就丢（docs/DOCKER.md §2）。
+_STATE_DIR = os.getenv("AUTOMATION_STATE_DIR")
+ENV_FILE = Path(_STATE_DIR) / ".env" if _STATE_DIR else BASE_DIR / ".env"
+load_dotenv(ENV_FILE)
 
 BACKEND_SOURCE_DIRECTORY = BASE_DIR / "backend"
 FRONTEND_SOURCE_DIRECTORY = BASE_DIR / "frontend"

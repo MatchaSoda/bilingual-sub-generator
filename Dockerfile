@@ -45,6 +45,9 @@ RUN python -m venv /app/venv \
     && /app/venv/bin/pip install --upgrade pip \
     && /app/venv/bin/pip install -r requirements.txt
 
+# Hugging Face 下载走普通 HTTPS 而不是 xet 分块协议：xet 经代理时收尾环节会无限期挂住（09-19 实测，
+# 文件已完整仍卡 17 分钟），普通 HTTPS 有读超时 + Range 续传，卡了会自己重试。见 docs/RUNBOOK.md §5.6。
+ENV HF_HUB_DISABLE_XET=1
 COPY backend/ ./backend/
 COPY automation/mover.py automation/backfill.py automation/config.json.example ./automation/
 COPY scripts/ ./scripts/

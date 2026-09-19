@@ -624,35 +624,77 @@ def whisper_model_cached(model):
     return False
 
 
-def step_whisper_model(env, report_only=False):
-    hr("第 5 步 · 预下载语音识别模型")
-    model = "large-v3-turbo"
+def configured_whisper_model(default="large-v3-turbo"):
     if CONFIG_FILE.is_file():
         try:
-            model = json.loads(CONFIG_FILE.read_text(encoding="utf-8")).get("processing", {}).get("whisper_model", model)
+            return json.loads(CONFIG_FILE.read_text(encoding="utf-8")).get("processing", {}).get("whisper_model", default)
         except Exception:  # noqa: BLE001
             pass
-    cached = whisper_model_cached(model)
-    if cached:
+    return default
+
+
+def download_whisper_model(model, proxy):
+    """下载模型，返回 (成功?, 说明)。先按配置的代理下，失败再直连试一次。
+
+    - 断点续传靠 huggingface_hub 自己（blobs/*.incomplete），被杀掉重跑会接着下。
+    - 镜像里 HF_HUB_DISABLE_XET=1 走普通 HTTPS，读超时后会重试，不会像 xet 那样无限期挂住（RUNBOOK §5.6）。
+    """
+    from faster_whisper import download_model
+    routes = [(proxy, f"经代理 {proxy}")] if proxy else []
+    routes.append((None, "直连"))
+    last_error = "?"
+    for route_proxy, label in routes:
+        apply_proxy_env(route_proxy)
+        size_hint = "约 1.6 GB，" if model.startswith("large") else ""
+        print(f"  … {label} 下载 {model}（{size_hint}可随时 Ctrl+C，下次会续传）", flush=True)
+        start = time.time()
+        try:
+            path = download_model(model)
+            size = (Path(path) / "model.bin").stat().st_size if (Path(path) / "model.bin").exists() else 0
+            apply_proxy_env(proxy)
+            return True, f"{label}下载完成，model.bin {size / 1e9:.2f} GB，用时 {int(time.time() - start)} 秒"
+        except KeyboardInterrupt:
+            apply_proxy_env(proxy)
+            return False, "已中断（已下载的部分会保留，下次续传）"
+        except Exception as e:  # noqa: BLE001
+            last_error = f"{type(e).__name__}: {str(e)[:160]}"
+            warn(f"{label}失败：{last_error}")
+    apply_proxy_env(proxy)
+    return False, last_error
+
+
+def ensure_whisper_model(env, model=None):
+    """非交互：模型不在就下，在就直接返回。给 docker-start.sh 启动前调用（`setup --download-model`）。"""
+    model = model or configured_whisper_model()
+    if whisper_model_cached(model):
+        ok(f"模型 {model} 已在本地缓存")
+        return True
+    proxy = env.get("HTTPS_PROXY") or env.get("HTTP_PROXY") or None
+    passed, detail = download_whisper_model(model, proxy)
+    (ok if passed else bad)(detail)
+    return passed
+
+
+def step_whisper_model(env, report_only=False):
+    hr("第 5 步 · 预下载语音识别模型")
+    model = configured_whisper_model()
+    if whisper_model_cached(model):
         ok(f"模型 {model} 已在本地缓存")
         return True
     if report_only:
-        warn(f"模型 {model} 还没下载，第一次处理视频时会自动下载（约 1.6 GB）")
+        warn(f"模型 {model} 还没下载（或上次没下完）。./docker-start.sh 启动前会自动补下；也可手动 ./docker-start.sh model")
         return True
     note(f"""
 第一次转写要从 Hugging Face 下载模型 {model}（large-v3-turbo 约 1.6 GB），
-走的是上面配置的代理。现在先下好，正式跑的时候就不用等。
+先走上面配置的代理，不通再直连。现在先下好，正式跑的时候就不用等。
     """)
     if not ask_yes_no("现在下载？"):
         return True
-    try:
-        from faster_whisper import download_model
-        start = time.time()
-        download_model(model)
-        ok(f"下载完成，用时 {int(time.time() - start)} 秒")
-    except Exception as e:  # noqa: BLE001
-        bad(f"下载失败：{type(e).__name__}: {str(e)[:200]}")
-        note("多半是代理到不了 huggingface.co。可以先继续，第一次处理视频时会再试。")
+    proxy = env.get("HTTPS_PROXY") or env.get("HTTP_PROXY") or None
+    passed, detail = download_whisper_model(model, proxy)
+    (ok if passed else bad)(detail)
+    if not passed:
+        note("可以先继续；./docker-start.sh 启动前会再试，第一次处理视频时也会再试。")
     return True
 
 
@@ -669,11 +711,16 @@ def load_env():
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="只体检，不交互")
+    parser.add_argument("--download-model", action="store_true", help="不交互：模型没缓存就下载（代理失败自动换直连），有就直接退出")
+    parser.add_argument("--model", help="配合 --download-model：指定模型名，缺省用 config.json 的 processing.whisper_model")
     args = parser.parse_args()
 
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     env = load_env()
     apply_proxy_env(env.get("HTTPS_PROXY") or env.get("HTTP_PROXY") or None)
+
+    if args.download_model:
+        sys.exit(0 if ensure_whisper_model(env, args.model) else 1)
 
     if args.check:
         results = [

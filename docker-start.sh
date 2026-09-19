@@ -8,6 +8,7 @@
 #   ./docker-start.sh update     拉最新代码并重建镜像（yt-dlp 过期时用）
 #   ./docker-start.sh shell      进容器排查
 #   ./docker-start.sh check      不交互地体检当前配置
+#   ./docker-start.sh model      只确保 Whisper 模型已下载（启动时会自动做，这个是手动触发）
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -62,6 +63,8 @@ case "$cmd" in
             warn "还没做过首次设置，先进向导。"
             run_setup
         fi
+        # 模型不在就先补下（在的话两秒无感）。失败不阻塞启动：第一次任务时还会再试，只是要多等。
+        docker compose run --rm setup setup --download-model || warn "模型没下好，第一次处理视频时会自动重试；也可稍后 ./docker-start.sh model"
         # shellcheck disable=SC2046
         say "启动服务"
         docker compose $(profile_args) up -d --remove-orphans
@@ -88,6 +91,10 @@ case "$cmd" in
         ensure_image
         docker compose run --rm setup setup --check
         ;;
+    model)
+        ensure_image
+        docker compose run --rm setup setup --download-model "${@:2}"
+        ;;
     logs)
         # shellcheck disable=SC2046
         docker compose $(profile_args) logs -f --tail=200 "${@:2}"
@@ -110,6 +117,6 @@ case "$cmd" in
         docker compose run --rm --entrypoint bash setup
         ;;
     *)
-        sed -n '2,12p' "$0"
+        sed -n '2,13p' "$0"
         ;;
 esac

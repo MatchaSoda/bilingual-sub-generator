@@ -15,17 +15,22 @@ PYTHON_PATH = BASE_DIR / "venv" / "bin" / "python3"
 YTDLP_PATH = BASE_DIR / "venv" / "bin" / "yt-dlp"
 BILIUP_PATH = BASE_DIR / "venv" / "bin" / "biliup"
 DOWNLOADS_DIR = BASE_DIR / "data" / "downloads"
-HISTORY_FILE = Path(__file__).parent / "history.json"
-CONFIG_FILE = Path(__file__).parent / "config.json"
+
+# 运行期状态（config.json / history.json / cookies.json / 产出视频）所在目录。
+# 默认就是本目录，和以前一样；Docker 部署把 AUTOMATION_STATE_DIR 指到挂载的 userdata/，
+# 这样代码和用户数据分开，镜像重建不丢状态。见 docs/DOCKER.md。
+STATE_DIR = Path(os.getenv("AUTOMATION_STATE_DIR") or Path(__file__).parent).absolute()
+HISTORY_FILE = STATE_DIR / "history.json"
+CONFIG_FILE = STATE_DIR / "config.json"
 # 专门存放生成好的双语视频
-OUTPUT_DIR = Path(__file__).parent / "data"
+OUTPUT_DIR = STATE_DIR / "data"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# 哔哩哔哩登录凭据 (假设用户已通过 biliup login 生成或手动放置)
-BILI_SESSION = Path(__file__).parent / "cookies.json"
+# 哔哩哔哩登录凭据 (用户通过 biliup login 生成；biliup 默认读工作目录下的 cookies.json)
+BILI_SESSION = STATE_DIR / "cookies.json"
 
-# YouTube cookies (Netscape 格式，放在项目根目录) —— 用于规避 YouTube 机器人检测
-YT_COOKIES = BASE_DIR / "cookies.txt"
+# YouTube cookies (Netscape 格式，默认放在项目根目录) —— 用于规避 YouTube 机器人检测
+YT_COOKIES = Path(os.getenv("YT_COOKIES_FILE") or (BASE_DIR / "cookies.txt"))
 
 def make_cookies_copy():
     """复制 master cookies 到临时文件返回路径。
@@ -34,7 +39,8 @@ def make_cookies_copy():
     Set-Cookie，会把 master 文件里的认证 token 一点点冲掉。我们让 yt-dlp 只污染临时副本，
     master 永远是用户最近从浏览器导出的那一份。
     """
-    if not YT_COOKIES.exists():
+    # 空文件视为没有 cookie：占位文件是向导 / 启动脚本 touch 出来的，喂给 yt-dlp 会报格式错误
+    if not YT_COOKIES.is_file() or YT_COOKIES.stat().st_size == 0:
         return None
     fd, tmp_path = tempfile.mkstemp(prefix="yt-cookies-", suffix=".txt")
     os.close(fd)
@@ -205,7 +211,7 @@ def upload_to_bilibili(video_path, cover_path, title, tid, description, tags,
     """
     if not BILI_SESSION.exists():
         print(f"⚠️ 找不到 B 站登录凭据 {BILI_SESSION}, 跳过投稿")
-        print(f"💡 请在 automation 目录下执行: ../venv/bin/biliup login")
+        print(f"💡 请在 {STATE_DIR} 目录下执行: biliup login（Docker 部署运行 ./docker-start.sh setup）")
         return False
 
     print(f"🚀 开始投稿 B 站: {title} (分区: {tid})")
@@ -231,7 +237,7 @@ def upload_to_bilibili(video_path, cover_path, title, tid, description, tags,
         try:
             subprocess.run(
                 cmd,
-                cwd=str(Path(__file__).parent),
+                cwd=str(STATE_DIR),  # biliup 从工作目录读 cookies.json
                 check=True,
                 capture_output=True,
                 text=True

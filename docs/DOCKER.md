@@ -21,7 +21,7 @@ Windows 在 **WSL 终端或 Git Bash** 里运行脚本。
 | 1 网络 | 知道代理软件的端口（或确认能直连） | 自动把 127.0.0.1 换成容器可达的地址；HTTP 和 SOCKS5 两种协议都试，用能通的 |
 | 2 Gemini | 到 https://aistudio.google.com/apikey 申请 key | 逐个 key 真调一次接口，区分「key 错」和「地区不支持」 |
 | 3 YouTube cookie | 无痕窗口登录 YouTube，用扩展导出 cookies.txt 放到 `userdata/` | 去 CRLF、查 LOGIN_INFO、用生产同款参数实测一个视频能否拿到 ≥720p |
-| 4 自动搬运（可选） | B 站账号手机 App 扫码 | `biliup login`；问答式生成 `config.json`（频道、关键词、排除词、分区、扫描间隔） |
+| 4 自动搬运（可选） | B 站账号手机 App 扫码 | `biliup login`；问答式生成 `config.json`（频道、关键词、排除词、分区、扫描间隔）；问「新账号全新开始，还是带 history 继续」决定 `backfill.mode`（RUNBOOK §4） |
 | 5 模型 | 无 | 预下载 Whisper 模型（约 1.6 GB），免得第一次任务干等 |
 
 跑完向导，`./docker-start.sh` 会启动 `web`（始终）和 `mover`（仅当开启了自动搬运）。
@@ -35,6 +35,7 @@ userdata/            ← 你的全部数据，git 忽略，备份这个目录就
   cookies.json       B 站登录信息
   config.json        搬运频道与规则                  （模板 automation/config.json.example）
   history.json       已处理视频 id
+  state.json         起点水位（首次启动时间，backfill.mode=since_first_start 时才有）
   data/              生成好的双语视频 + 封面
 data/downloads/      下载与中间产物缓存（会很大，可定期清）
 docker volume whisper-models   Whisper 模型缓存
@@ -74,6 +75,8 @@ Gemini key 也可以在 Web 界面「系统设置」里填，后端会写到 `us
   处理：先手工 `docker pull` 两个基础镜像（`node:20-bookworm-slim`、`python:3.12-slim-bookworm`），
   多试几次总能拉下来，之后 build 就只用本地缓存。Dockerfile 已去掉 `# syntax=docker/dockerfile:1`
   指令，否则 BuildKit 每次 build 都要去远端解析这个 frontend 镜像，撞上同一个超时。
+- **迁移时把 `history.json` 一起带过来，或者把 `config.json` 的 `backfill.mode` 设成 `since_first_start`。**
+  两样都没有，第一轮就会把频道最近 100 个视频全部重新投一遍（RUNBOOK §4「起点水位」）。
 - **YouTube cookie 不是可选项。** 生产用的 `mweb` 客户端没有登录 cookie 时，YouTube 直接返回
   `Sign in to confirm you're not a bot`——日本直连和经代理都一样（09-19 实测）。所以向导第 3 步的
   cookie 必须给，否则 Web 界面能开但提交任务必失败。

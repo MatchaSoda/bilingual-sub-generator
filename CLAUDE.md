@@ -89,7 +89,9 @@ entry_cli.py  ──►  media_downloader (yt-dlp)
 
 1. `.env` → `GOOGLE_API_KEYS`（逗号分隔，`config/keys.py` 轮询使用）
 2. `backend/config/settings.py` → 路径、代理、cookie 位置、默认字幕样式
-3. `automation/config.json` → 频道列表、过滤规则、`processing` 段的流水线参数
+3. `automation/config.json` → 频道列表、过滤规则、`processing` 段的流水线参数、`backfill` 段的起点水位（RUNBOOK §4）
+
+运行期标记 `automation/state.json`（Docker：`userdata/state.json`）只存首次启动时间，删掉即重置起点。
 
 代理**没有内置默认值**，`.env` 不写就是直连。Docker 部署下所有用户数据集中在 `userdata/`，
 代码靠 `AUTOMATION_STATE_DIR` 和 `YT_COOKIES_FILE` 两个环境变量找到它们（见 `docs/DOCKER.md` §2）。

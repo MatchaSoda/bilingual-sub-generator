@@ -155,6 +155,24 @@ exclude 含 "every"
 `EwAI8HI54Ks` / `DfjuPKvutoc` 的描述确认确实含 `#newsevery`，才发现是有意为之。
 **在动这个词之前先问用户要不要『every.特集』**，不要凭「语义冲突」自行判断。
 
+### 起点水位：`backfill.mode`（新账号 / 新部署必看）
+
+`playlist_items` 故意开到 100，是为了服务停机几天后能把漏掉的视频追回来。副作用是**新账号第一次启动会把
+频道最近 100 个存货全搬上去**；迁移时如果没带 `history.json` 也一样。`config.json` 的 `backfill` 段控制这件事：
+
+| `mode` | 行为 | 用在 |
+|---|---|---|
+| `all`（缺省，缺 `backfill` 段时也是它） | history 之外的全补 | 一直在跑的老账号 |
+| `since_first_start` | 以本部署**第一次启动**的时间为起点，往前多算 `lookback_hours`（默认 24）小时；更早发布的视频直接写入 history 跳过 | 新账号、全新部署 |
+
+起点写在 `state.json`（裸机 `automation/`，Docker `userdata/`）的 `first_start_at`，**之后重启不会推后起点**，
+所以「第一次启动 → 现在」之间漏掉的照样补。`lookback_hours` 改了下一轮就按新值算，不用重置。
+要真正重置起点：停服务 → 删 `state.json` → 启动。
+
+发布时间来自 `yt-dlp --flat-playlist` 加 `youtubetab:approximate_date`，是把列表页的「3 時間前」换算出来的
+近似值（精度小时 / 天），不多打请求。拿不到时间的条目（极少）不受水位限制，走正常过滤。
+日志里每轮开头有一行 `🧭 起点水位: 只处理 … 之后发布的视频`，被水位跳过的会打印 `⏭️ 跳过 (发布于 …，早于起点 …)`。
+
 ### 排除词是裸子串匹配
 
 不做词边界检查，所以 `死` 会命中「起死回生」、`害` 会命中「利害」。
@@ -236,6 +254,17 @@ journalctl -u bili-mover --since "2 days ago" | grep -c "no longer valid"   # >0
 > **千万不要加 `nocheckcertificate: True`。** `yt-dlp-getpot-wpc` 插件没有声明支持 `DISABLE_TLS_VERIFICATION`，一旦开启该选项，PO Token 框架会**静默跳过**这个 provider，于是拿不到 GVS PO Token，所有 DASH 格式被丢弃，或退回 `android_vr` 的无 token 直链（YouTube 只放行前 ~10MB 就 403）。全程零报错，唯一症状是画质掉到 360p。
 
 PO Token 由 `yt-dlp-getpot-wpc` 插件提供，它会**真的拉起一个无头 Chrome**（日志里的 `Launching youtube.com in browser` / `successfully removed temp profile /tmp/uc_*`）。这是正常现象，不是异常。
+
+**第三条独立的坑（2026-09-19 Docker 首跑踩到）**：PO Token 拿到了，仍然 `Only images are available`，
+`-v` 里有 `n challenge solving failed ... Ensure you have a supported JavaScript runtime`。yt-dlp 2025.11 起解 n 参数
+要两样东西：`yt-dlp-ejs` 脚本包（`pip install "yt-dlp[default]"` 才带）和一个 JS 运行时（默认只自动启用 **deno**；
+node 得在每个调用点加 `--js-runtimes node`，Python API 也要配，所以不用 node）。`-v` 第一屏的
+`[debug] JS runtimes:` 一行显示 `none` 就是这个问题。requirements 里已固定 `deno` 的 PyPI 二进制包，
+Dockerfile 把 `venv/bin` 加进了 PATH。裸机上 `venv/bin/yt-dlp -v` 同样看这一行。
+
+**第四条**：`yt-dlp-getpot-wpc` 1.0.0 配 nodriver 0.50 会 `AttributeError("'NoneType' object has no attribute 'send'")`，
+而且插件失败后不缓存浏览器实例，**每个 PO Token 请求都新开一个 Chrome**，几十个 Chromium 能把宿主机 load 打到 40。
+1.1.2 修了并锁定 `nodriver==0.50.3`。看到这个报错先查插件版本，不要先怀疑 Xvfb / DISPLAY。
 
 ### 5.4 B 站投稿失败 `client error (Connect)`
 

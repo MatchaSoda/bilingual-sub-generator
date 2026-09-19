@@ -37,12 +37,30 @@
 - `docker compose restart` 不会重新读 `userdata/.env`（实测：改值后 restart，容器里还是旧值；`up -d` 会 Recreate）。
   DOCKER.md / env.example 里「改完 restart」的说法已改成重新 `./docker-start.sh`。
 
+### 导入旧机配置后继续排查（同日下午，凭据到位）
+
+用户导出的 `userdata/`（key、cookie 171 条含 LOGIN_INFO、B 站 cookies.json、config、7853 条 history）导入后：
+
+- Gemini key 经 Clash 和直连都是 200。
+- cookie 过了风控（不再 `not a bot`），但 `yt-dlp-getpot-wpc` 1.0.0 配镜像里的 nodriver 0.50.3 报
+  `'NoneType' object has no attribute 'send'`，且每个 PO Token 请求重开一个 Chrome，35 个 Chromium 把宿主机 load 打到 38。
+  升到 1.1.2（锁 nodriver==0.50.3）后 `Launching youtube.com in browser` / `Minting gvs PO Token` 正常。
+- 之后仍只剩图片格式：`JS runtimes: none`。requirements 是裸 `yt-dlp`，没有 `yt-dlp-ejs`，镜像里也没有 JS 运行时。
+  改成 `yt-dlp[default]` + PyPI 的 `deno` 二进制包，Dockerfile 把 `venv/bin` 加进 PATH。RUNBOOK §5.3 记了这两条。
+
+### 新功能：automation 起点水位（`backfill.mode`）
+
+用户提出：新账号 / 迁移时不想把频道 100 个存货全搬一遍，但停机恢复时又要能补齐「首次启动 → 现在」。
+实现见 `mover.py` 的 `resolve_backfill_cutoff`，语义写在 RUNBOOK §4。要点：起点只在第一次启动时落盘到
+`state.json`，重启不推后；`lookback_hours` 可随时改；发布时间用 `youtubetab:approximate_date` 从列表页换算，零额外请求。
+`config.json.example` 默认 `since_first_start`，代码缺省 `all`（不影响正在跑的 WSL 服务）。向导第 4 步新增提问。
+单测 13 个（`test_mover_backfill.py`），全套 64/64。
+
 ### 仍未验证（需要凭据）
 
-- PO Token 完整链路（`Launching youtube.com in browser` → ≥720p）：没有 cookie 时 `mweb` / `web` 客户端
-  在拿 token 之前就被 `not a bot` 拦下，直连和经代理都一样。要等用户放入 `userdata/cookies.txt` 后
-  `./docker-start.sh check` 再看。
-- Gemini key 未配置；`biliup login` 在容器 tty 里的二维码显示未测。
+- `biliup login` 在容器 tty 里的二维码显示未测（导入了旧机的 cookies.json，暂时不需要）。
+- `mover` 在 Docker 里没有真正跑过一轮（`ENABLE_AUTOMATION=0`，等用户决定何时停旧机、开新机，避免双开投稿）。
+- 起点水位只有单测和 flat-playlist 的时间戳实测，没有在真实一轮扫描里观察过日志。
 
 ## 2026-09-19 这次做了什么：Docker 一键部署 + 首次设置向导
 

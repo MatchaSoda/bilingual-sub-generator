@@ -21,7 +21,7 @@
 ./docker-start.sh     # 首次会构建镜像并进入设置向导，按提示填代理 / key / cookie
 ```
 
-向导会逐步验证每项配置。详见 [docs/DOCKER.md](./docs/DOCKER.md)。
+向导会逐步验证每项配置。换机器：旧机 `./docker-start.sh export`，新机 `./docker-start.sh import <包>` 再 `./docker-start.sh`。详见 [docs/DOCKER.md](./docs/DOCKER.md)。
 
 ### 方式 B：裸机安装
 

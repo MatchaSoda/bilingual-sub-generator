@@ -66,6 +66,18 @@
 标题译为「【白银周】交通状况及台风影响」→ ffmpeg 压制 26 秒 → 1920x1080 h264 70.7 秒。抽帧确认主字幕 / 中文副字幕 /
 振假名三层渲染正常，Noto Sans CJK 无豆腐块。
 
+### 可迁移性 / 易用性收尾（同日晚）
+
+用户明确这台 Mac 只是验证「能否换机器跑」，之后要迁到专用服务器，所以把这一路的摩擦点做掉：
+
+- 容器按宿主机 uid 运行（`PUID`/`PGID` → entrypoint `setpriv` 降权，`/etc/chromium.d/no-sandbox` 让非 root 的 Chromium 能起）。
+  实测 uid 501 下 check 6/6、PO Token 正常、产出文件宿主机属主 501。不设 PUID 仍是 root。
+- compose 加 `init: true`（任务后 defunct 数 0）和日志轮转 5×20 MB。
+- `./docker-start.sh` 检测到 userdata 齐全就先体检、通过直接启动，不再强制走向导；新增 `export` / `import`
+  （导入自动关 ENABLE_AUTOMATION、删 .setup-done、拒绝覆盖已有配置除非 --force）。在干净的仓库副本里导入后 check 6/6。
+- 向导第 1 步先探直连，通了默认直连。构建失败自动重试一次并给 DNS / 基础镜像的提示。
+- 纠正：buildx 不会把 shell 的代理变量带进构建（实测），CLAUDE.md 之前那条建议已改。
+
 ### 仍未验证（需要凭据）
 
 - `biliup login` 在容器 tty 里的二维码显示未测（导入了旧机的 cookies.json，暂时不需要）。

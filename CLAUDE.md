@@ -166,8 +166,8 @@ Co-Authored-By: <实际模型名> <noreply@anthropic.com>
 ### Docker 开发机（macOS，Apple Silicon，Docker Desktop）
 
 - 代理是 Clash Verge 混合端口 `127.0.0.1:7897`，shell 里有 `HTTP_PROXY=http://127.0.0.1:7897`。容器里要写
-  `http://host.docker.internal:7897`（已在 `userdata/.env`）。跑 `docker compose build` 前把这几个变量去掉
-  （`env -u HTTP_PROXY -u HTTPS_PROXY docker compose ...`），免得 127.0.0.1 被带进构建容器。
+  `http://host.docker.internal:7897`（已在 `userdata/.env`）。shell 里的代理变量**不会**被 buildx 带进构建容器
+  （09-19 实测），也不会进运行容器，不用特意 `env -u`。
 - 宿主机 DNS 是 114.114.114.114，会把 `auth.docker.io` 解析到 Dropbox 网段，拉镜像偶发 `i/o timeout`，重试即可（DOCKER.md §4）。
 - 容器直连和经代理都能到 YouTube；但没有 cookie 时 mweb 客户端一律 `not a bot`，别拿无 cookie 的结果判断网络。
 - 镜像是原生 arm64，biliup 有 aarch64 wheel，不要加 `platform: linux/amd64`。

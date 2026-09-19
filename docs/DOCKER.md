@@ -18,7 +18,7 @@ Windows 在 **WSL 终端或 Git Bash** 里运行脚本。
 | 步骤 | 你需要准备 | 向导会做什么 |
 |---|---|---|
 | 0 环境自检 | 无 | 检查 ffmpeg、CJK 字体、Chromium、yt-dlp、biliup 是否在镜像里 |
-| 1 网络 | 知道代理软件的端口（或确认能直连） | 自动把 127.0.0.1 换成容器可达的地址；HTTP 和 SOCKS5 两种协议都试，用能通的 |
+| 1 网络 | 知道代理软件的端口（或确认能直连） | 先试直连，通了默认直连；否则自动把 127.0.0.1 换成容器可达的地址，HTTP 和 SOCKS5 都试，用能通的 |
 | 2 Gemini | 到 https://aistudio.google.com/apikey 申请 key | 逐个 key 真调一次接口，区分「key 错」和「地区不支持」 |
 | 3 YouTube cookie | 无痕窗口登录 YouTube，用扩展导出 cookies.txt 放到 `userdata/` | 去 CRLF、查 LOGIN_INFO、用生产同款参数实测一个视频能否拿到 ≥720p |
 | 4 自动搬运（可选） | B 站账号手机 App 扫码 | `biliup login`；问答式生成 `config.json`（频道、关键词、排除词、分区、扫描间隔）；问「新账号全新开始，还是带 history 继续」决定 `backfill.mode`（RUNBOOK §4） |
@@ -58,12 +58,32 @@ docker volume whisper-models   Whisper 模型缓存
 | 停止 | `./docker-start.sh stop` |
 | yt-dlp 过期 / 更新代码 | `./docker-start.sh update` |
 | 进容器排查 | `./docker-start.sh shell` |
+| 迁移：导出 / 导入用户数据 | `./docker-start.sh export`、`./docker-start.sh import <包>`（§3.5） |
 | 补投单个视频 | `docker compose run --rm setup bash -c "cd automation && ../venv/bin/python3 backfill.py <url>"` |
 
 手改了 `userdata/.env` 后重新执行 `./docker-start.sh`（它跑的是 `docker compose up -d`，配置变了会自动
 重建容器）。**`docker compose restart` 不行**——env_file 只在容器创建时读，restart 不重建，容器里还是旧值（09-19 实测）。
 Gemini key 也可以在 Web 界面「系统设置」里填，后端会写到 `userdata/.env` 并立即对新任务生效，不用重启。
 手改 `userdata/config.json` 不用重启，下一轮扫描生效（同裸机）。
+
+## 3.5 迁移到另一台机器
+
+```bash
+# 旧机器
+./docker-start.sh export                     # 生成 bilingual-sub-userdata-<日期>.tar.gz（不含生成的视频）
+# 新机器
+git clone <仓库> && cd bilingual-sub-generator
+./docker-start.sh import <那个 .tar.gz>       # 解开到 userdata/，自动把 ENABLE_AUTOMATION 置 0
+./docker-start.sh                            # 检测到 key / cookie 齐全 → 先体检；6/6 直接启动，否则进向导补代理
+```
+
+三件事要知道：
+
+- **代理地址跟机器走。** 包里的 `HTTP_PROXY` 是旧机器的；体检不通过时向导第 1 步会重新探测（先试直连）。
+- **两边别同时投稿。** 导入时自动关掉自动搬运；新机器跑通后，先停旧机器（裸机 `sudo systemctl disable --now bili-mover`，
+  Docker `./docker-start.sh stop`），再在新机器 `./docker-start.sh setup` 到第 4 步打开。
+  旧机器在导出之后、停掉之前处理过的视频不在包里的 `history.json` 里，新机器会再投一遍——想零重复就停旧机后再导出一次。
+- **包里有登录凭据**，传完删掉。
 
 ## 4. 已知限制与坑
 
@@ -92,8 +112,13 @@ Gemini key 也可以在 Web 界面「系统设置」里填，后端会写到 `us
   CUDA 基础镜像并把 `transcription_engine.py` 的 device 改成 cuda，目前没做。
 - **`data/downloads` 会无限增长。** 中间产物（.asr.json / .translated.json）是缓存，删了会重算。
   磁盘紧张时删里面的 .mp4 / .wav 即可。
-- **容器以 root 运行**，bind mount 出来的文件属主是 root。Linux 上想以自己身份编辑时
-  `sudo chown -R $USER userdata data` 一次即可。
+- **容器以你的 uid 运行**（`docker-start.sh` 把 `id -u`/`id -g` 传成 `PUID`/`PGID`，entrypoint 用 setpriv 降权），
+  所以 `userdata/`、`data/` 里生成的文件属主是你。直接用 `docker compose` 而不经过脚本时不设这两个变量
+  = 以 root 运行，Linux 上文件会变 root 属主，之后 `sudo chown -R $USER userdata data` 一次。
+  非 root 下 Chromium 靠 `/etc/chromium.d/no-sandbox` 里的 `--no-sandbox` 启动（Docker 默认 seccomp 不给用户命名空间）。
+- **资源。** 镜像 3 GB + 模型 1.6 GB + 每个视频的中间产物几十 MB；内存高峰约 2 GB（large-v3-turbo int8）。
+  给 Docker 至少 4 GB 内存、10 GB 磁盘。容器日志已限制在 5×20 MB 轮转，PID 1 是 tini（`init: true`）负责回收
+  每个任务留下的 chromium 僵尸进程。
 - **yt-dlp 会过期。** YouTube 改接口时要 `./docker-start.sh update` 重建镜像。
 
 ## 5. 这套部署对运行中裸机服务的影响

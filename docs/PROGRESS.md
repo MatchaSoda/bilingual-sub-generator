@@ -80,11 +80,18 @@
 - 用户提醒「权限不能一刀切，也要考虑裸机用户」：PUID 改为分情形推导（sudo 取 SUDO_UID、Windows 不传、root 登录就 root、
   `PUID=` 可强制 root、非数字兜底 root），裸机路径完全不涉及；README 方式 B 补齐 Chromium / Noto CJK / Xvfb 依赖和向导步骤。
 
+### x86_64 构建验证
+
+`docker buildx build --platform linux/amd64` 在这台 Mac 上交叉构建成功（QEMU，约 11 分钟）：pip 解析到
+biliup / deno / ctranslate2 / onnxruntime / nodriver 的 x86_64 wheel，镜像内 `biliup --version`、`deno --version`、
+`yt-dlp --version`、ffmpeg、10 个 Noto Sans CJK 字体族均正常。只验证了「能构建、二进制能跑」，没有在真实 x86 机器上跑流水线。
+
 ### 仍未验证（需要凭据）
 
 - `biliup login` 在容器 tty 里的二维码显示未测（导入了旧机的 cookies.json，暂时不需要）。
 - `mover` 在 Docker 里没有真正跑过一轮（`ENABLE_AUTOMATION=0`，等用户决定何时停旧机、开新机，避免双开投稿）。
 - 起点水位只有单测和 flat-playlist 的时间戳实测，没有在真实一轮扫描里观察过日志。
+- x86_64 只做了交叉构建 + 二进制冒烟，未在真实 x86 机器上跑过完整流水线（迁到新服务器时第一件事就是 `./docker-start.sh check`）。
 
 ## 2026-09-19 这次做了什么：Docker 一键部署 + 首次设置向导
 

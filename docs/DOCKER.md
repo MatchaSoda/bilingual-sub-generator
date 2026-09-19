@@ -108,6 +108,8 @@ git clone <仓库> && cd bilingual-sub-generator
 - **x86_64 和 arm64 都可以原生跑。** 早先以为 `biliup` 没有 arm64 wheel，实际 PyPI 上 1.1.29 就有
   `manylinux_2_28_aarch64`。2026-09-19 在 Apple Silicon（M 系列，Docker Desktop）上原生构建通过，
   容器内 `biliup --version` 正常，不需要 `platform: linux/amd64`。首次构建约 12 分钟（apt 5 分钟、pip 4 分钟）。
+  x86_64 侧同日用 `docker buildx build --platform linux/amd64` 在 Mac 上交叉构建通过（QEMU 下约 11 分钟），
+  镜像内 `uname -m` 为 x86_64，biliup / deno / yt-dlp / ffmpeg / Noto CJK 均可用；真实 x86 服务器上的运行还没测。
 - **转写是纯 CPU。** large-v3-turbo 处理 10 分钟视频约需 5–15 分钟，取决于核数。GPU 版需要换
   CUDA 基础镜像并把 `transcription_engine.py` 的 device 改成 cuda，目前没做。
 - **`data/downloads` 会无限增长。** 中间产物（.asr.json / .translated.json）是缓存，删了会重算。

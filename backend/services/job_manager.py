@@ -54,8 +54,11 @@ class JobExecutionManager:
         cli_command.append("--translate-title")
         
         execution_environment = os.environ.copy()
-        execution_environment["HTTP_PROXY"] = HTTP_PROXY
-        execution_environment["HTTPS_PROXY"] = HTTPS_PROXY
+        # 代理可能未配置（直连部署），环境变量值必须是 str，不能塞 None。
+        if HTTP_PROXY:
+            execution_environment["HTTP_PROXY"] = HTTP_PROXY
+        if HTTPS_PROXY:
+            execution_environment["HTTPS_PROXY"] = HTTPS_PROXY
         execution_environment["PYTHONPATH"] = str(BASE_DIR / "backend")
         
         try:

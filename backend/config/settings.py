@@ -1,5 +1,4 @@
 import os
-import re
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -19,21 +18,21 @@ VENV_PYTHON = BASE_DIR / "venv" / "bin" / "python3"
 if not VENV_PYTHON.exists():
     VENV_PYTHON = BASE_DIR.parent / "venv" / "bin" / "python3"
 
-HTTP_PROXY = os.getenv("HTTP_PROXY", "http://127.0.0.1:10808")
-HTTPS_PROXY = os.getenv("HTTPS_PROXY", "http://127.0.0.1:10808")
+# 代理完全由环境变量决定（.env 或进程环境）。留空 / 不设 = 直连。
+# 不再内置 127.0.0.1:10808 这种默认值：它只对某一台机器成立，在容器里 127.0.0.1 是容器
+# 自己，会静默连不上。Docker 部署下由 scripts/setup_wizard.py 探测后写进 userdata/.env。
+HTTP_PROXY = os.getenv("HTTP_PROXY") or os.getenv("http_proxy") or None
+HTTPS_PROXY = os.getenv("HTTPS_PROXY") or os.getenv("https_proxy") or HTTP_PROXY
 
-_COOKIES_FILE = BASE_DIR / "cookies.txt"
-YT_DLP_COOKIES = str(_COOKIES_FILE) if _COOKIES_FILE.exists() else None
+# YouTube cookies（Netscape 格式）。默认在仓库根；Docker 部署用 YT_COOKIES_FILE 指到挂载目录。
+# 空文件视为不存在：向导 / 启动脚本会先 touch 一个占位，yt-dlp 拿到空文件会报格式错误。
+_COOKIES_FILE = Path(os.getenv("YT_COOKIES_FILE") or (BASE_DIR / "cookies.txt"))
+YT_DLP_COOKIES = str(_COOKIES_FILE) if _COOKIES_FILE.is_file() and _COOKIES_FILE.stat().st_size > 0 else None
 
-# Gemini 单独走 SOCKS + 本地 DNS 解析，绕开代理服务端的域名分流（见 docs/RUNBOOK.md §5.5）。
-# 默认由 HTTPS_PROXY 换 scheme 得到，端口跟着一起变；设 GEMINI_PROXY="" 可关掉这个绕行。
-def _socks_variant(proxy_url):
-    if not proxy_url:
-        return None
-    return re.sub(r"^https?://", "socks5://", proxy_url)
-
-_gemini_proxy_override = os.getenv("GEMINI_PROXY")
-GEMINI_PROXY = _gemini_proxy_override if _gemini_proxy_override is not None else _socks_variant(HTTPS_PROXY)
+# Gemini 可选地单独走一条 SOCKS + 本地 DNS 解析的路径，绕开代理服务端的域名分流
+# （见 docs/RUNBOOK.md §5.5）。这条绕行只对「代理服务端按域名分流」的部署有意义，
+# 所以必须显式设 GEMINI_PROXY 才启用；不设 = 只走进程原有代理，不做任何花活。
+GEMINI_PROXY = os.getenv("GEMINI_PROXY") or None
 GEMINI_FORCE_IPV4 = os.getenv("GEMINI_FORCE_IPV4", "1") == "1"
 
 GOOGLE_API_KEYS = os.getenv("GOOGLE_API_KEYS", "")

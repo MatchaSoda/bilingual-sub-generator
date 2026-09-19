@@ -240,11 +240,20 @@ def step_network(env, report_only=False):
   · 同一个端口可能是 HTTP 代理也可能是 SOCKS5，向导会两种都试，用能通的那种。
         """)
 
+    # 先悄悄探一下直连：海外机器 / 路由器翻墙的用户不用想代理端口，直接回车
+    print("  … 先试试直连")
+    direct_yt, direct_gm, direct_detail = test_route(None)
+    if direct_yt and direct_gm:
+        ok(f"直连就通：{direct_detail}")
+        default_choice = 1
+    else:
+        note(f"直连不通（{direct_detail}），大概率需要代理")
+        default_choice = 2
     choice = ask_choice("你的网络能直接访问 YouTube 和 Google 吗？", [
         ("能，直连", "海外网络 / 路由器上已经翻墙"),
         ("不能，用本机代理软件（Clash / v2rayN / sing-box…）", "只需要告诉我端口号"),
         ("用别的地址的代理", "填完整地址，如 socks5://192.168.1.5:1080"),
-    ], default=2)
+    ], default=default_choice)
 
     while True:
         if choice == 1:

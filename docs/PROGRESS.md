@@ -1,13 +1,43 @@
 # 当前进展 (PROGRESS)
 
 > 每次改动后更新这里。下一个接手的人 / AI 只看这个文件判断现状。
-> 最后更新：2026-09-19
+> 最后更新：2026-09-19（下午，Docker 实测）
 
 ---
 
 ## 现在的状态
 
-服务正常，**无待办故障**。09-19 加了 Docker 一键部署（未在真实 Docker 里构建过，见下）。
+服务正常，**无待办故障**。09-19 加了 Docker 一键部署，同日下午在 Apple Silicon Mac 上完成首次真实构建与启动（见下）。
+
+## 2026-09-19（下午）：Docker 首次真实构建（macOS / Apple Silicon）
+
+在一台 M 系列 MacBook Air（Docker Desktop 29.8，arm64，Clash Verge 代理 7897）上从零克隆、构建、启动。
+
+### 结果
+
+- 镜像原生 arm64 构建成功，3.1 GB，首次约 12 分钟（apt 5 分钟，pip 4 分钟）。**`biliup` 1.1.29 有 aarch64 wheel**，
+  文档里「只支持 x86_64」的说法是错的，已改 `docs/DOCKER.md` §4。
+- `./docker-start.sh check`：ffmpeg / Noto Sans CJK / Chromium / yt-dlp / biliup 全部就位；
+  `http://host.docker.internal:7897` 通（YouTube 204、Gemini 403 即可达）；模型预下载后显示已缓存。
+- `docker compose up -d web`：`GET /` 200，`/api/config`、`/api/library` 正常，浏览器打开首页渲染无控制台报错。
+- nodriver 在 entrypoint 起的 Xvfb 下能拉起 Chromium 并打开 youtube.com（`document.title == "YouTube"`），
+  PROGRESS 上一条担心的「Chromium 在 Xvfb 下起不来」排除。
+- 单元测试在容器里跑：51/51 通过（需要给 `GOOGLE_API_KEYS` 任意非空值，`config/keys.py` 导入期就校验）。
+
+### 踩到并修掉的
+
+- `# syntax=docker/dockerfile:1` 让 BuildKit 每次都去远端解析 frontend 镜像，宿主机 DNS（114.114.114.114）
+  把 `auth.docker.io` 解析成 Dropbox 网段，60 秒超时后失败。Dockerfile 没用到任何需要外部 frontend 的语法，删掉该行。
+- `./docker-start.sh check` 原来执行 `docker compose run --rm setup --check`，compose 的 `run` 会把后面的参数
+  **整个替换** command，容器收到的 `$1` 是 `--check`，entrypoint 兜底分支 `exec --check` 直接报错。
+  改成 `run --rm setup setup --check`，entrypoint 也加了 `--*)` 分支兜底。
+
+### 仍未验证（需要凭据）
+
+- PO Token 完整链路（`Launching youtube.com in browser` → ≥720p）：没有 cookie 时 `mweb` / `web` 客户端
+  在拿 token 之前就被 `not a bot` 拦下，直连和经代理都一样。要等用户放入 `userdata/cookies.txt` 后
+  `./docker-start.sh check` 再看。
+- Gemini key 未配置；`biliup login` 在容器 tty 里的二维码显示未测。
 
 ## 2026-09-19 这次做了什么：Docker 一键部署 + 首次设置向导
 
@@ -39,10 +69,9 @@
 
 ### 未验证 / 待办
 
-- **本机没有 Docker，镜像从未构建过。** 下一步是在有 Docker 的机器上 `./docker-start.sh` 跑一遍，
-  重点看：`npm ci` 是否因 playwright 下载卡住、`chromium` 在 Xvfb 下能否被 nodriver 拉起（日志里应有
-  `Launching youtube.com in browser`）、字体是否被 ffmpeg 识别（向导第 0 步）、`host.docker.internal` 代理连通。
-- `biliup` 无 arm64 wheel；`biliup login` 在容器 tty 里的二维码显示未测。
+- ~~本机没有 Docker，镜像从未构建过。~~ 已于同日下午在 Apple Silicon Mac 上构建并启动，见上一节。
+  `npm ci` 70 秒无卡顿（playwright 浏览器下载被跳过）、字体识别正常、nodriver 拉起 Chromium 正常、代理连通。
+- ~~`biliup` 无 arm64 wheel~~（有，见上）；`biliup login` 在容器 tty 里的二维码显示未测。
 
 ## 2026-09-14 这次做了什么
 

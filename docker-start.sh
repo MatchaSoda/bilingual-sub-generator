@@ -38,8 +38,33 @@ mkdir -p userdata data
 [ -e userdata/cookies.txt ] || : > userdata/cookies.txt
 chmod 600 userdata/.env userdata/cookies.txt 2>/dev/null || true
 
-# 容器以当前用户身份运行（见 docker-compose.yml 的 PUID/PGID），生成的文件属主是你而不是 root
-export PUID="${PUID:-$(id -u)}" PGID="${PGID:-$(id -g)}"
+# 容器以哪个 uid 运行（见 docker-compose.yml 的 PUID/PGID）。目的是让 userdata/ 和 data/ 里生成的文件属主是
+# 「操作这台机器的人」，但不同情形答案不同，不能一律取 id -u：
+#   普通用户直接运行            → 自己的 uid/gid
+#   sudo ./docker-start.sh      → id -u 是 0，真正的人在 SUDO_UID/SUDO_GID 里
+#   本来就是 root 登录的服务器  → 0，即以 root 运行，文件归 root，没毛病
+#   Windows（Git Bash / WSL 之外）→ id -u 是个几十万的假值，bind mount 也不讲属主，不传，容器按 root 跑
+#   用户自己设了 PUID / PGID    → 照单全收；PUID= （空）表示强制 root
+resolve_puid() {
+    if [ -n "${PUID+x}" ]; then
+        export PUID PGID="${PGID:-$PUID}"
+        return
+    fi
+    local uid gid
+    uid=$(id -u); gid=$(id -g)
+    if [ "$uid" = "0" ] && [ -n "${SUDO_UID:-}" ]; then
+        uid="$SUDO_UID"; gid="${SUDO_GID:-$SUDO_UID}"
+    fi
+    case "$(uname -s)" in
+        Linux|Darwin) ;;
+        *) uid=""; gid="" ;;
+    esac
+    if [ -n "$uid" ] && [ "$uid" -gt 65534 ] 2>/dev/null; then
+        uid=""; gid=""
+    fi
+    export PUID="$uid" PGID="$gid"
+}
+resolve_puid
 
 # userdata 是否已经「齐活」——从别的机器迁过来的通常是。齐活就不必走向导，体检通过直接启动。
 userdata_complete() {

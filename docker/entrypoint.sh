@@ -25,8 +25,11 @@ if [ "$(id -u)" = "0" ]; then
         mkdir -p "$(dirname "$YT_COOKIES_FILE")"
         [ -e "$YT_COOKIES_FILE" ] || : > "$YT_COOKIES_FILE"
     fi
-    if [ -n "${PUID:-}" ] && [ "${PUID}" != "0" ]; then
+    # 只接受纯数字且非 0 的 PUID；其他情况（没设、设成空、设成用户名之类）都按 root 跑
+    case "${PUID:-}" in ''|0|*[!0-9]*) PUID="" ;; esac
+    if [ -n "${PUID}" ]; then
         PGID="${PGID:-$PUID}"
+        case "${PGID}" in ''|*[!0-9]*) PGID="$PUID" ;; esac
         getent group "$PGID" >/dev/null 2>&1 || groupadd -g "$PGID" app
         # -K 放宽 uid 范围：macOS 用户是 501，默认 UID_MIN=1000 会每次启动打一行警告
         getent passwd "$PUID" >/dev/null 2>&1 || useradd -u "$PUID" -g "$PGID" -M -d /tmp -s /bin/bash -K UID_MIN=1 -K UID_MAX=65534 app

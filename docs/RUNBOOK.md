@@ -404,6 +404,39 @@ IP 族。钉好后重新采样确认只剩干净的那个段，再跑一次探�
 
 ---
 
+### 5.6 卡在 `Loading Whisper model`，CPU 几乎为零
+
+症状：任务日志停在 `📡 Loading Whisper model: large-v3-turbo (cpu/int8)...`，之后只有一行 HF Hub 的匿名请求警告，
+`entry_cli.py` CPU 个位数，十几分钟不动。Docker 首跑（09-19）就是这样，卡了 17 分钟。
+
+机制有两层：
+
+1. `WhisperModel(...)` 默认 `local_files_only=False`，huggingface_hub 每次都要先连 huggingface.co 核对版本，
+   **哪怕模型早就缓存好了**。网络一抖就卡在这里，而不是卡在真正的下载。
+2. 模型缓存可能是「看起来有、其实没完」：`snapshots/<rev>/` 里只有几个 json，`blobs/` 下是 `*.incomplete`
+   （上一次下载被打断）。这时 hf_xet 走代理去收尾，会无限期挂住——那次文件已经是完整的 1,617,884,929 字节
+   （等于服务端 `x-linked-size`），换普通 HTTPS 直连 1 秒就收尾完成。
+
+现在的处置（都已进代码）：
+
+- `transcription_engine.py` 先 `local_files_only=True`，本地完整就完全不碰网，失败才走下载。
+- 镜像 `HF_HUB_DISABLE_XET=1`：普通 HTTPS 有读超时和 Range 续传，卡了会自己重试。
+- `./docker-start.sh` 启动前跑 `setup --download-model`：没缓存就下（先代理后直连），有就两秒过。
+  手动：`./docker-start.sh model`；试下载路径：`./docker-start.sh model --model tiny`。
+- 向导 / `--check` 判断「已缓存」要求快照里真有 `model.bin`，不再被 `.incomplete` 骗过。
+
+排查命令：
+
+```bash
+# 缓存到底完不完整（Docker 在容器里跑；裸机把 /models 换成 ~/.cache/huggingface）
+ls -la /models/hub/models--*/snapshots/*/            # 应有 model.bin 软链
+ls /models/hub/models--*/blobs/ | grep incomplete    # 有输出 = 没下完
+# 卡住的子进程在等谁
+cat /proc/<pid>/net/tcp | awk '$4=="01"'             # ESTABLISHED 却零流量 = 上游挂了
+```
+
+---
+
 ## 6. 验证脚本
 
 Gemini 两条出口的当前成功率：

@@ -56,6 +56,16 @@
 `config.json.example` 默认 `since_first_start`，代码缺省 `all`（不影响正在跑的 WSL 服务）。向导第 4 步新增提问。
 单测 13 个（`test_mover_backfill.py`），全套 64/64。
 
+### 真实视频端到端（同日傍晚）
+
+用 Web API 提交 `T3VwdAhbbQg`（日テレ 71 秒新闻）。第一次卡在 `Loading Whisper model` 17 分钟：模型 blob 已完整但仍是
+`.incomplete`（我之前 `docker kill` 探测容器时把后台预下载一起杀了），hf_xet 经 Clash 收尾挂死；向导 `--check` 却报「已缓存」。
+处置见 RUNBOOK §5.6（`local_files_only` 优先、`HF_HUB_DISABLE_XET=1`、启动前 `--download-model`、缓存判断看 `model.bin`）。
+
+重提后全程约 1.5 分钟：下载 399+251（PO Token + deno 解 n 参数都走通）→ 转写 35 秒 → Gemini 翻译 16 段 3 秒 →
+标题译为「【白银周】交通状况及台风影响」→ ffmpeg 压制 26 秒 → 1920x1080 h264 70.7 秒。抽帧确认主字幕 / 中文副字幕 /
+振假名三层渲染正常，Noto Sans CJK 无豆腐块。
+
 ### 仍未验证（需要凭据）
 
 - `biliup login` 在容器 tty 里的二维码显示未测（导入了旧机的 cookies.json，暂时不需要）。

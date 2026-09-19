@@ -22,7 +22,7 @@ Windows 在 **WSL 终端或 Git Bash** 里运行脚本。
 | 2 Gemini | 到 https://aistudio.google.com/apikey 申请 key | 逐个 key 真调一次接口，区分「key 错」和「地区不支持」 |
 | 3 YouTube cookie | 无痕窗口登录 YouTube，用扩展导出 cookies.txt 放到 `userdata/` | 去 CRLF、查 LOGIN_INFO、用生产同款参数实测一个视频能否拿到 ≥720p |
 | 4 自动搬运（可选） | B 站账号手机 App 扫码 | `biliup login`；问答式生成 `config.json`（频道、关键词、排除词、分区、扫描间隔）；问「新账号全新开始，还是带 history 继续」决定 `backfill.mode`（RUNBOOK §4） |
-| 5 模型 | 无 | 预下载 Whisper 模型（约 1.6 GB），免得第一次任务干等 |
+| 5 模型 | 无 | 预下载 Whisper 模型（约 1.6 GB），先走代理、不通换直连，中断可续传；启动脚本每次也会确认它在 |
 
 跑完向导，`./docker-start.sh` 会启动 `web`（始终）和 `mover`（仅当开启了自动搬运）。
 
@@ -53,6 +53,7 @@ docker volume whisper-models   Whisper 模型缓存
 | 启动 / 重启 | `./docker-start.sh` |
 | 改配置（换 cookie、改代理、加频道） | `./docker-start.sh setup` |
 | 不交互地体检当前配置 | `./docker-start.sh check` |
+| 确保 Whisper 模型已下载（启动时自动做） | `./docker-start.sh model`，试其他模型：`./docker-start.sh model --model small` |
 | 看日志 | `./docker-start.sh logs`，只看搬运：`./docker-start.sh logs mover` |
 | 停止 | `./docker-start.sh stop` |
 | yt-dlp 过期 / 更新代码 | `./docker-start.sh update` |
@@ -77,6 +78,8 @@ Gemini key 也可以在 Web 界面「系统设置」里填，后端会写到 `us
   指令，否则 BuildKit 每次 build 都要去远端解析这个 frontend 镜像，撞上同一个超时。
 - **迁移时把 `history.json` 一起带过来，或者把 `config.json` 的 `backfill.mode` 设成 `since_first_start`。**
   两样都没有，第一轮起就会把频道最近 `playlist_items` 个（example 是 300）视频全部重新投一遍（RUNBOOK §4「起点水位」）。
+- **Hugging Face 走代理可能卡死在收尾。** 镜像里已关掉 xet 协议（`HF_HUB_DISABLE_XET=1`），启动前的模型检查
+  会先代理后直连。任务日志若停在 `Loading Whisper model` 十几分钟不动，看 RUNBOOK §5.6。
 - **YouTube cookie 不是可选项。** 生产用的 `mweb` 客户端没有登录 cookie 时，YouTube 直接返回
   `Sign in to confirm you're not a bot`——日本直连和经代理都一样（09-19 实测）。所以向导第 3 步的
   cookie 必须给，否则 Web 界面能开但提交任务必失败。

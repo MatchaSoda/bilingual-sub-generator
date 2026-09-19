@@ -51,7 +51,7 @@ cd frontend && npm run build && npm run lint
 ```
 
 Docker 部署：`./docker-start.sh`（首次进向导；改了 `userdata/.env` 后也用它，它会重建容器，`docker compose restart` 不会重读 env）、
-`./docker-start.sh check`（体检配置）、`./docker-start.sh shell`（进容器）。任何要在容器里跑的一次性命令用
+`./docker-start.sh check`（体检配置）、`./docker-start.sh model`（确保 Whisper 模型在，启动时自动做）、`./docker-start.sh shell`（进容器）。任何要在容器里跑的一次性命令用
 `docker compose run --rm -T setup bash -c '...'`；改了 `backend/` 或 `scripts/` 要 `docker compose build` 后 `up -d` 才生效（代码是 COPY 进镜像的，不是挂载）。
 
 自动化服务的操作命令见 `docs/RUNBOOK.md`（涉及 systemd 和状态文件，有顺序要求）。

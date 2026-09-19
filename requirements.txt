@@ -80,11 +80,18 @@ uritemplate==4.2.0
 urllib3==2.6.3
 uvicorn==0.41.0
 wrapt==2.1.1
-yt-dlp>=2026.7.4
+# [default] 附带 yt-dlp-ejs（解 YouTube n 参数挑战的脚本包）；再配一个 JS 运行时（下面的 deno）。
+# 两样缺一个，yt-dlp 就会 "n challenge solving failed"，所有 DASH 格式被丢弃、只剩图片（RUNBOOK §5.3）。
+yt-dlp[default]>=2026.7.4
+# Deno 二进制的 PyPI 再分发，yt-dlp 默认只自动启用 deno（node 要每个调用点显式配置）。
+# 装在 venv/bin 里，Dockerfile 把 venv/bin 加进 PATH。
+deno==2.9.7
 # --- 下面几项原先只装在本机 venv、没进 requirements，Docker 镜像构建需要 ---
-# B 站投稿命令行（Rust 二进制 wheel，PyPI 目前只有 x86_64；见 docs/DOCKER.md）
+# B 站投稿命令行（Rust 二进制 wheel，x86_64 / aarch64 都有；见 docs/DOCKER.md）
 biliup==1.1.29
-# yt-dlp 的 PO Token 插件：拉起真实 Chrome 取 token，没有它 mweb 客户端只剩 360p（RUNBOOK §5.3）
-yt-dlp-getpot-wpc==1.0.0
+# yt-dlp 的 PO Token 插件：拉起真实 Chrome 取 token，没有它 mweb 客户端只剩 360p（RUNBOOK §5.3）。
+# 1.0.0 依赖旧 nodriver API（start() 后直接用 browser.connection），配 nodriver 0.50 会
+# AttributeError 并且每次请求都新开一个 Chrome 把机器打满；1.1.2 锁定 nodriver==0.50.3。
+yt-dlp-getpot-wpc==1.1.2
 # socks5:// 代理支持（requests / yt-dlp）
 PySocks==1.7.1

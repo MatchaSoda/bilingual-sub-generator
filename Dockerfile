@@ -37,6 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# venv/bin 进 PATH：yt-dlp 子进程按名字找 deno（JS 运行时，pip 装的），排查时也能直接敲 yt-dlp / biliup。
+# 放在 apt 层之后：改 ENV 会让后面的层缓存全失效，别让它连累 5 分钟的 apt 层。
+ENV PATH=/app/venv/bin:$PATH
 COPY requirements.txt ./
 RUN python -m venv /app/venv \
     && /app/venv/bin/pip install --upgrade pip \

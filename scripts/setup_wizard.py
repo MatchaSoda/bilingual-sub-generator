@@ -605,6 +605,25 @@ def step_automation(env, report_only=False):
     return True
 
 
+def whisper_model_cached(model):
+    """快照目录里真的有 model.bin 才算缓存好了。
+
+    只看 scan_cache_dir 有没有这个 repo 会误判：下载被打断时 repo 目录、config.json 都在，
+    model.bin 却还是 blobs/*.incomplete，第一次任务会卡在「Loading Whisper model」重新下。
+    """
+    try:
+        from huggingface_hub import scan_cache_dir
+        for repo in scan_cache_dir().repos:
+            if model.lower() not in repo.repo_id.lower():
+                continue
+            for revision in repo.revisions:
+                if any(f.file_name == "model.bin" for f in revision.files):
+                    return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
 def step_whisper_model(env, report_only=False):
     hr("第 5 步 · 预下载语音识别模型")
     model = "large-v3-turbo"
@@ -613,11 +632,7 @@ def step_whisper_model(env, report_only=False):
             model = json.loads(CONFIG_FILE.read_text(encoding="utf-8")).get("processing", {}).get("whisper_model", model)
         except Exception:  # noqa: BLE001
             pass
-    try:
-        from huggingface_hub import scan_cache_dir
-        cached = any(model.lower() in repo.repo_id.lower() for repo in scan_cache_dir().repos)
-    except Exception:  # noqa: BLE001
-        cached = False
+    cached = whisper_model_cached(model)
     if cached:
         ok(f"模型 {model} 已在本地缓存")
         return True

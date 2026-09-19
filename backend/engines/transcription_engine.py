@@ -5,7 +5,14 @@ from faster_whisper import WhisperModel
 class AudioTranscriptionEngine:
     def __init__(self, model_size="base", computing_device="cpu", calculation_precision="int8"):
         print(f"📡 Loading Whisper model: {model_size} ({computing_device}/{calculation_precision})...", flush=True)
-        self.whisper_model = WhisperModel(model_size, device=computing_device, compute_type=calculation_precision)
+        # 先只看本地缓存：完整模型在的话不碰网络。否则 huggingface_hub 每次都要去 huggingface.co 核对版本，
+        # 代理 / HF 一抖，整条流水线就卡在这一行（见 docs/RUNBOOK.md §5.6）。
+        try:
+            self.whisper_model = WhisperModel(model_size, device=computing_device,
+                                              compute_type=calculation_precision, local_files_only=True)
+        except Exception:  # noqa: BLE001 —— 本地没有或不完整（例如 blobs/*.incomplete），走正常下载
+            print(f"📥 本地没有完整的 {model_size}，开始下载（约 1.6 GB，走当前代理设置）...", flush=True)
+            self.whisper_model = WhisperModel(model_size, device=computing_device, compute_type=calculation_precision)
         print("✅ Model loaded.", flush=True)
 
     def transcribe_audio_file(self, audio_file_path, specified_language=None, cached_results_path=None):

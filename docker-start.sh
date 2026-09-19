@@ -86,7 +86,7 @@ case "$cmd" in
         ;;
     check)
         ensure_image
-        docker compose run --rm setup --check
+        docker compose run --rm setup setup --check
         ;;
     logs)
         # shellcheck disable=SC2046

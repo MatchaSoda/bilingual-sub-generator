@@ -53,6 +53,10 @@ case "${1:-web}" in
         shift
         exec /app/venv/bin/python3 /app/scripts/setup_wizard.py "$@"
         ;;
+    --*)
+        # `docker compose run setup --check` 会把 --check 当成整个 command 传进来（compose 的 run 是替换而不是追加）
+        exec /app/venv/bin/python3 /app/scripts/setup_wizard.py "$@"
+        ;;
     *)
         exec "$@"
         ;;

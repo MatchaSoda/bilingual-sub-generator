@@ -1,14 +1,48 @@
 # 当前进展 (PROGRESS)
 
 > 每次改动后更新这里。下一个接手的人 / AI 只看这个文件判断现状。
-> 最后更新：2026-09-14
+> 最后更新：2026-09-19
 
 ---
 
 ## 现在的状态
 
-服务正常，**无待办故障**。09-14 修完两件事，等 09-15 生产日志确认：`CLI 失败` 应基本归零，
-`no longer valid` 应为 0。
+服务正常，**无待办故障**。09-19 加了 Docker 一键部署（未在真实 Docker 里构建过，见下）。
+
+## 2026-09-19 这次做了什么：Docker 一键部署 + 首次设置向导
+
+目标是让别人在别的电脑上 `./docker-start.sh` 就能跑起来，代理 / key / cookie / 频道全部由向导引导填写并当场验证。
+
+### 新增
+
+- `Dockerfile`（node 阶段导出前端 → python:3.12-slim + ffmpeg + fonts-noto-cjk + chromium + xvfb，venv 在 `/app/venv`）
+- `docker-compose.yml`：`web` / `mover`（profile `automation`）/ `setup`（profile `setup`）共用一个镜像
+- `docker/entrypoint.sh`：起 Xvfb（PO Token 插件要非 headless Chrome）、按角色分发
+- `docker-start.sh`：宿主机一键脚本（start / setup / check / logs / stop / update / shell）
+- `scripts/setup_wizard.py`：交互向导，`--check` 为非交互体检。逻辑拆在 `backend/utils/setup_checks.py`，13 个单测
+- `userdata/`：Docker 部署的全部用户数据目录（git 忽略）
+- `docs/DOCKER.md`
+
+### 改动（影响裸机部署，已在本机 `.env` 补齐）
+
+- `settings.py`：代理不再默认 `127.0.0.1:10808`，纯环境变量；`GEMINI_PROXY` 显式设才启用；
+  `YT_COOKIES_FILE` 可覆盖 cookie 路径；空 cookie 文件视为不存在
+- `mover.py`：`AUTOMATION_STATE_DIR` 覆盖 config / history / cookies.json / 产出目录；biliup 的 cwd 跟着走
+- `requirements.txt` 补上此前只装在本机 venv 的 `biliup`、`yt-dlp-getpot-wpc`、`PySocks`
+
+### 验证
+
+- `bash run_tests.sh` 51/51（新增 13 个 setup_checks 用例）
+- `scripts/setup_wizard.py --check` 在本机裸机配置上 6/6 通过：YouTube 204、Gemini key 200、
+  cookie 167 条含 LOGIN_INFO、yt-dlp 实测拿到 2160p、模型已缓存
+- settings 改动后 `HTTP_PROXY / GEMINI_PROXY / route_for_attempt` 解析值与改前一致
+
+### 未验证 / 待办
+
+- **本机没有 Docker，镜像从未构建过。** 下一步是在有 Docker 的机器上 `./docker-start.sh` 跑一遍，
+  重点看：`npm ci` 是否因 playwright 下载卡住、`chromium` 在 Xvfb 下能否被 nodriver 拉起（日志里应有
+  `Launching youtube.com in browser`）、字体是否被 ffmpeg 识别（向导第 0 步）、`host.docker.internal` 代理连通。
+- `biliup` 无 arm64 wheel；`biliup login` 在容器 tty 里的二维码显示未测。
 
 ## 2026-09-14 这次做了什么
 

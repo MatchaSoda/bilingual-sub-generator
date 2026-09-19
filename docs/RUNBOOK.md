@@ -6,6 +6,8 @@
 
 ## 1. 服务概览
 
+> Docker 部署的对应操作（重启、日志、改配置）见 [`DOCKER.md`](./DOCKER.md) §3；本节针对裸机 systemd 部署。
+
 | 项 | 值 |
 |---|---|
 | systemd 单元 | `bili-mover.service`（`/etc/systemd/system/`，仓库内 `automation/bili-mover.service` 只是模板） |

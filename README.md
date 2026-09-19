@@ -15,6 +15,16 @@
 
 ## 🚀 快速开始
 
+### 方式 A：Docker 一键（推荐给新机器）
+
+```bash
+./docker-start.sh     # 首次会构建镜像并进入设置向导，按提示填代理 / key / cookie
+```
+
+向导会逐步验证每项配置。详见 [docs/DOCKER.md](./docs/DOCKER.md)。
+
+### 方式 B：裸机安装
+
 ### 1. 环境准备
 
 确保你的系统已安装 `Python 3.10+`, `Node.js 18+` 和 `FFmpeg`。

@@ -18,6 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `CLAUDE.md`（本文件） | 命令、架构、AI 维护约定 | 每次开工 |
 | `docs/RUNBOOK.md` | 运维手册：服务操作、凭据、故障处置、**踩过的坑** | 碰 automation / 下载 / 投稿时 |
 | `docs/PROGRESS.md` | 当前状态、进行中的工作、已知问题 | 每次开工，改完后更新 |
+| `docs/DOCKER.md` | Docker 部署：目录约定、向导、限制 | 碰 Dockerfile / compose / setup_wizard 时 |
 | `document.md` | 架构与前端技术细节（libass-wasm 预览等） | 需要深入某模块时 |
 | `README.md` | 面向用户的安装与快速开始 | 很少 |
 | `TODO.md` | 产品功能待办（非工程问题） | 规划功能时 |
@@ -43,6 +44,8 @@ cd backend && ../venv/bin/python3 entry_cli.py "<youtube_url>" --segment-mode ru
 # 前端
 cd frontend && npm run build && npm run lint
 ```
+
+Docker 部署：`./docker-start.sh`（首次进向导）、`./docker-start.sh check`（体检配置）。
 
 自动化服务的操作命令见 `docs/RUNBOOK.md`（涉及 systemd 和状态文件，有顺序要求）。
 
@@ -80,6 +83,9 @@ entry_cli.py  ──►  media_downloader (yt-dlp)
 1. `.env` → `GOOGLE_API_KEYS`（逗号分隔，`config/keys.py` 轮询使用）
 2. `backend/config/settings.py` → 路径、代理、cookie 位置、默认字幕样式
 3. `automation/config.json` → 频道列表、过滤规则、`processing` 段的流水线参数
+
+代理**没有内置默认值**，`.env` 不写就是直连。Docker 部署下所有用户数据集中在 `userdata/`，
+代码靠 `AUTOMATION_STATE_DIR` 和 `YT_COOKIES_FILE` 两个环境变量找到它们（见 `docs/DOCKER.md` §2）。
 
 `automation/config.json` **每轮循环重新读取**，改了不用重启服务。
 

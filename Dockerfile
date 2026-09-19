@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # 双语字幕生成器：一个镜像同时承担 Web 服务、自动搬运、首次设置向导（见 docker-compose.yml）。
 # 构建期做两件事：node 阶段把 Next.js 前端静态导出；python 阶段装 venv + 系统依赖。
 # venv 固定在 /app/venv —— mover.py / settings.py 用相对仓库根的 venv/bin/... 找解释器和 yt-dlp、biliup。

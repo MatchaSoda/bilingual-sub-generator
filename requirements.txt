@@ -81,3 +81,10 @@ urllib3==2.6.3
 uvicorn==0.41.0
 wrapt==2.1.1
 yt-dlp>=2026.7.4
+# --- 下面几项原先只装在本机 venv、没进 requirements，Docker 镜像构建需要 ---
+# B 站投稿命令行（Rust 二进制 wheel，PyPI 目前只有 x86_64；见 docs/DOCKER.md）
+biliup==1.1.29
+# yt-dlp 的 PO Token 插件：拉起真实 Chrome 取 token，没有它 mweb 客户端只剩 360p（RUNBOOK §5.3）
+yt-dlp-getpot-wpc==1.0.0
+# socks5:// 代理支持（requests / yt-dlp）
+PySocks==1.7.1

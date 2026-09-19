@@ -32,6 +32,89 @@ BILI_SESSION = STATE_DIR / "cookies.json"
 # YouTube cookies (Netscape 格式，默认放在项目根目录) —— 用于规避 YouTube 机器人检测
 YT_COOKIES = Path(os.getenv("YT_COOKIES_FILE") or (BASE_DIR / "cookies.txt"))
 
+# 运行期标记（目前只有「起点水位」的首次启动时间）。删掉这个文件 = 重新计起点。
+STATE_FILE = STATE_DIR / "state.json"
+
+DEFAULT_LOOKBACK_HOURS = 24
+
+
+def load_state():
+    if STATE_FILE.exists():
+        try:
+            with open(STATE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"⚠️ 读取运行期标记失败，按空处理: {e}")
+    return {}
+
+
+def save_state(state):
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=str(STATE_FILE.parent), prefix='.state-', suffix='.tmp')
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, STATE_FILE)
+    except Exception as e:
+        print(f"❌ 无法保存运行期标记: {e}")
+
+
+def resolve_backfill_cutoff(config, state, now=None):
+    """算出「早于这个时间点的视频一律不补」的水位，返回 (cutoff 时间戳 或 None, state 是否被改动)。
+
+    config["backfill"]["mode"]:
+      "all"（缺省）        —— 旧行为：history 里没有的全补。窗口（playlist_items）开得大是为了停机
+                              恢复时把漏掉的都追回来，这对持续运行的老账号是对的。
+      "since_first_start"  —— 新账号 / 全新部署用：以本部署**第一次**启动的时间为起点，往前多算
+                              lookback_hours 小时，更早发布的视频直接记入 history 跳过。起点写在
+                              state.json 里，之后服务重启不会推后起点，所以「从第一次启动到现在」
+                              之间漏掉的照样会补，只是不会把频道几年的存货一股脑搬上去。
+
+    lookback_hours 改了会立刻按新值重算（起点不变，只是往前多算或少算），不需要重置。
+    要真正重置起点：停服务，删 state.json，再启动。
+    """
+    backfill = config.get('backfill') or {}
+    if backfill.get('mode', 'all') != 'since_first_start':
+        return None, False
+    now = time.time() if now is None else now
+    changed = False
+    first_start = state.get('first_start_at')
+    if not isinstance(first_start, (int, float)) or isinstance(first_start, bool):
+        first_start = int(now)
+        state['first_start_at'] = first_start
+        changed = True
+    try:
+        lookback_hours = float(backfill.get('lookback_hours', DEFAULT_LOOKBACK_HOURS))
+    except (TypeError, ValueError):
+        lookback_hours = float(DEFAULT_LOOKBACK_HOURS)
+    return first_start - lookback_hours * 3600, changed
+
+
+def is_before_cutoff(entry, cutoff):
+    """发布时间已知且早于水位才算「太老」；拿不到发布时间的视频放行给后面的正常过滤。"""
+    ts = entry.get('timestamp')
+    return cutoff is not None and ts is not None and ts < cutoff
+
+
+def fmt_ts(ts):
+    return time.strftime('%Y-%m-%d %H:%M', time.localtime(ts)) if ts else '?'
+
+
+def parse_flat_playlist_line(line):
+    """解析 get_video_list 的 --print 行：id|timestamp|url|title。
+
+    title 放最后，因为它可能自带 '|'；timestamp 缺失时 yt-dlp 打印 NA。
+    """
+    parts = line.split('|', 3)
+    if len(parts) < 4:
+        return None
+    vid, ts, url, title = (p.strip() for p in parts)
+    try:
+        timestamp = int(float(ts))
+    except (TypeError, ValueError):
+        timestamp = None
+    return {'id': vid, 'timestamp': timestamp, 'url': url, 'title': title}
+
 def make_cookies_copy():
     """复制 master cookies 到临时文件返回路径。
 
@@ -111,13 +194,17 @@ def get_video_list(channel_url, playlist_items=10):
 
     flat-playlist 只解析频道列表页（网页 + InnerTube API 分页，每页约 30 条），
     不触碰 player API / PO token，所以窗口开大只是多翻几页元数据，成本很低。
+
+    youtubetab:approximate_date 让 yt-dlp 把列表页上的「3 時間前」这类相对时间换算成
+    timestamp（精度到小时 / 天），不多打任何请求；起点水位（resolve_backfill_cutoff）靠它判断。
     """
     cookies_tmp = make_cookies_copy()
     try:
         cmd = [
             str(YTDLP_PATH), "--ignore-errors", "--flat-playlist",
             "--playlist-items", f"1-{playlist_items}",
-            "--print", "%(id)s|%(title)s|%(webpage_url)s",
+            "--extractor-args", "youtubetab:approximate_date",
+            "--print", "%(id)s|%(timestamp)s|%(webpage_url)s|%(title)s",
         ]
         if cookies_tmp:
             cmd[1:1] = ["--cookies", cookies_tmp]
@@ -133,18 +220,14 @@ def get_video_list(channel_url, playlist_items=10):
         videos = []
         for line in result.stdout.splitlines():
             if not line.strip(): continue
-            parts = line.split('|', 2)
-            if len(parts) >= 3:
-                videos.append({
-                    'id': parts[0].strip(),
-                    'title': parts[1].strip(),
-                    'url': parts[2].strip(),
-                })
+            entry = parse_flat_playlist_line(line)
+            if entry:
+                videos.append(entry)
 
         if videos:
             print(f"📥 成功获取视频列表:")
             for v in videos:
-                print(f"  - [{v['id']}] {v['title']}")
+                print(f"  - [{v['id']}] {fmt_ts(v['timestamp'])} {v['title']}")
         else:
             print(f"⚠️ 未发现符合条件的视频内容")
 
@@ -367,11 +450,22 @@ def main():
     print(f"🏁 自动化搬运程序启动 (BASE_DIR: {BASE_DIR})")
     print(f"📂 视频输出目录: {OUTPUT_DIR}")
     history = load_history()
-    
+    state = load_state()
+
     while True:
         try:
             config = load_config()
         except: pass
+
+        # 起点水位：config 每轮重读，所以 mode / lookback_hours 改了下一轮就生效；起点本身只在
+        # 第一次算出来时落盘一次。语义见 resolve_backfill_cutoff 和 docs/RUNBOOK.md §4。
+        cutoff, state_changed = resolve_backfill_cutoff(config, state)
+        if state_changed:
+            save_state(state)
+            print(f"🧭 首次启动，起点已记录: {fmt_ts(state['first_start_at'])} → {STATE_FILE}")
+        if cutoff is not None:
+            print(f"🧭 起点水位: 只处理 {fmt_ts(cutoff)} 之后发布的视频（mode=since_first_start，"
+                  f"起点 {fmt_ts(state.get('first_start_at'))} 往前 {config.get('backfill', {}).get('lookback_hours', DEFAULT_LOOKBACK_HOURS)}h）")
 
         # 三个反爬 / 限流开关，均可在 config.json 里调整（缺省沿用保守默认值）：
         #   playlist_items                   —— 每轮扫描频道最近多少个视频（窗口越大越能扛停机）
@@ -401,6 +495,11 @@ def main():
                     print(f"⏸️ 本轮处理已达上限 ({max_uploads})，停止扫描剩余视频，留到下一轮")
                     break
                 if entry['id'] not in history:
+                    if is_before_cutoff(entry, cutoff):
+                        print(f"⏭️ 跳过 (发布于 {fmt_ts(entry['timestamp'])}，早于起点 {fmt_ts(cutoff)}): {entry['title']}")
+                        history.add(entry['id'])
+                        save_history(history)
+                        continue
                     keyword = channel.get('keyword', '').lower()
                     excludes = [e.lower() for e in channel.get('exclude', []) if e]
                     title = entry.get('title') or ""

@@ -80,6 +80,7 @@ automation/data/
 automation/config.json
 automation/history.json
 automation/history.lock
+automation/state.json
 automation/cookies.json
 cookies.txt
 

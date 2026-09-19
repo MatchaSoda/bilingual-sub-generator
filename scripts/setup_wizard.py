@@ -476,6 +476,11 @@ def step_automation(env, report_only=False):
             try:
                 cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
                 ok(f"config.json：{len(cfg.get('channels', []))} 个频道，每 {cfg.get('check_interval_seconds', '?')}s 扫一轮")
+                backfill = cfg.get("backfill") or {}
+                if backfill.get("mode") == "since_first_start":
+                    ok(f"补档范围：只处理首次启动前 {backfill.get('lookback_hours', 24)} 小时之后发布的视频（新账号模式）")
+                else:
+                    warn("补档范围：history 之外的全补（老账号模式）。新账号 / 新部署请在 config.json 加 backfill.mode=since_first_start，否则会把频道存货全搬一遍")
             except Exception as e:  # noqa: BLE001
                 bad(f"config.json 不是合法 JSON：{e}")
                 good = False
@@ -566,6 +571,22 @@ def step_automation(env, report_only=False):
         cfg["check_interval_seconds"] = int(minutes) * 60 if minutes.isdigit() else 1800
         per_cycle = ask("每轮最多处理几个视频（防止首轮把整个频道都搬了）", str(cfg.get("max_uploads_per_cycle", 3)))
         cfg["max_uploads_per_cycle"] = int(per_cycle) if per_cycle.isdigit() else 3
+
+        note("""
+频道页会扫最近 100 个视频。这个窗口故意开得很大，是为了服务停机几天后能把漏掉的都补上；
+但对一个新账号来说，第一次启动就会把这 100 个存货全搬上去。
+        """)
+        start_choice = ask_choice("这个 B 站账号之前搬过这些频道吗？", [
+            ("没有，全新开始", "只处理从现在起发布的视频（往前多算几小时兜底），以后重启也不会推后这个起点"),
+            ("有，带着旧的 history.json 继续", "history 之外的全补，等同一直以来的行为"),
+        ], default=1 if (cfg.get("backfill") or {}).get("mode", "since_first_start") == "since_first_start" else 2)
+        if start_choice == 1:
+            hours = ask("起点往前多算几小时（覆盖启动前刚发布、还没来得及扫到的视频）",
+                        str((cfg.get("backfill") or {}).get("lookback_hours", 24)))
+            cfg["backfill"] = {"mode": "since_first_start",
+                               "lookback_hours": int(hours) if hours.isdigit() else 24}
+        else:
+            cfg["backfill"] = {"mode": "all"}
 
         model_choice = ask_choice("语音识别模型", [
             ("large-v3-turbo", "质量最好，纯 CPU 处理 10 分钟视频约需 5–15 分钟"),

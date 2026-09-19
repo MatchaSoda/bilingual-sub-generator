@@ -9,6 +9,10 @@
       "tags": "日语学习,双语字幕,日本,日本新闻,日常"
     }
   ],
+  "backfill": {
+    "mode": "since_first_start",
+    "lookback_hours": 24
+  },
   "check_interval_seconds": 1800,
   "playlist_items": 100,
   "description_fetch_interval_seconds": 3,

@@ -4,6 +4,7 @@ import tempfile
 import yt_dlp
 from pathlib import Path
 from config.settings import DOWNLOADS_DIR, HTTP_PROXY, HTTPS_PROXY, YT_DLP_COOKIES
+from utils.filenames import TITLE_MAX_BYTES
 
 class YouTubeMediaDownloader:
     def __init__(self, target_directory=None):
@@ -13,7 +14,8 @@ class YouTubeMediaDownloader:
     def download_video_and_audio(self, video_url):
         ytdlp_configuration = {
             'format': 'bestvideo+bestaudio/best',
-            'outtmpl': str(self.download_path / '%(title)s.%(ext)s'),
+            # .NB 按字节截断标题，否则长日文标题会撞上 255 字节的文件名上限（Errno 36）
+            'outtmpl': str(self.download_path / f'%(title).{TITLE_MAX_BYTES}B.%(ext)s'),
             'proxy': HTTP_PROXY,
             'writethumbnail': True,
             'postprocessors': [
@@ -61,6 +63,8 @@ class YouTubeMediaDownloader:
 
                 return {
                     "title": video_title,
+                    # 文件名里的标题可能被截断过，翻译 / 投稿标题要用这个完整原标题
+                    "original_title": extracted_metadata.get("title") or video_title,
                     "video_path": str(video_file_path),
                     "audio_path": str(audio_file_path)
                 }

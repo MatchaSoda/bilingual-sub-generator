@@ -16,6 +16,7 @@ from engines.video_processor import FFmpegVideoProcessor
 from engines.segment_optimizer import SubtitleSegmentOptimizer
 from engines.llm_segmenter import LLMSubtitleSegmenter
 from config.settings import DOWNLOADS_DIR
+from utils.filenames import truncate_utf8
 
 def sanitize_for_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "_", name).strip()
@@ -124,16 +125,18 @@ def run_subtitle_generation_pipeline():
                 target_language_code=pipeline_arguments.target_language,
                 ai_model_identifier=pipeline_arguments.gemini_model
             )
-            translated_title = title_translator.translate_title(video_title, detected_source_language)
+            translated_title = title_translator.translate_title(
+                downloaded_media_info['original_title'], detected_source_language
+            )
         except Exception as title_translation_error:
             print(f"⚠️ Title translation failed, keeping original: {title_translation_error}", flush=True)
-            translated_title = video_title
+            translated_title = downloaded_media_info['original_title']
 
         if not translated_title:
-            translated_title = video_title
+            translated_title = downloaded_media_info['original_title']
         # Emit a parseable line so downstream consumers (web UI, automation) can reuse the translated title.
         print(f"🌐 Translated title: {translated_title}", flush=True)
-        output_filename_base = sanitize_for_filename(translated_title) or video_title
+        output_filename_base = truncate_utf8(sanitize_for_filename(translated_title)) or video_title
 
     if pipeline_arguments.output:
         final_video_output_path = Path(pipeline_arguments.output)

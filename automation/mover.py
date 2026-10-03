@@ -341,11 +341,17 @@ def upload_to_bilibili(video_path, cover_path, title, tid, description, tags,
                 print(f"  错误详情: {error_msg}")
     return False
 
+def safe_filename_title(title):
+    """替换非法字符并按字节截断。和 backend/utils/filenames.py 同一个 200 字节预算：
+    文件名上限是 255 字节不是字符，长日文标题拼上 _bilingual.mp4 会 Errno 36。
+    见 docs/RUNBOOK.md §5.7。"""
+    cleaned = re.sub(r'[\\/*?:"<>|]', "_", title).strip()
+    return cleaned.encode("utf-8")[:200].decode("utf-8", "ignore").rstrip()
+
 def process_and_upload(video_id, video_url, video_title, config, processing=None, full_config=None):
     print(f"\n🚀 开始处理: {video_title} ({video_id})")
 
-    # 将非法字符替换为下划线，保留标题长度和可识别性
-    safe_title = re.sub(r'[\\/*?:"<>|]', "_", video_title)
+    safe_title = safe_filename_title(video_title)
     target_video_path = OUTPUT_DIR / f"{safe_title}_bilingual.mp4"
 
     # 处理参数来自 config.json 的 "processing" 段（缺省时沿用以下默认值，等同旧行为）。
@@ -401,7 +407,7 @@ def process_and_upload(video_id, video_url, video_title, config, processing=None
     display_title = video_title
     if translated_title:
         display_title = translated_title
-        safe_zh_title = re.sub(r'[\\/*?:"<>|]', "_", translated_title).strip()
+        safe_zh_title = safe_filename_title(translated_title)
         if safe_zh_title and safe_zh_title != safe_title:
             renamed_video_path = OUTPUT_DIR / f"{safe_zh_title}_bilingual.mp4"
             try:

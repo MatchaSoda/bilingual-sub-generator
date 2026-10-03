@@ -27,6 +27,15 @@ PRESERVED_TITLE_SEGMENT_NAMES = (
 _KANA_PATTERN = re.compile(r"[\u3040-\u30ff]")
 
 
+# Batches at or below this size are not split further on a count mismatch;
+# they fall back to plain retries.
+MINIMUM_SPLIT_BATCH_SIZE = 10
+
+
+class TranslationCountMismatch(ValueError):
+    """The model returned fewer indexed lines than it was given."""
+
+
 class GeminiSubtitleTranslator:
     def __init__(self, target_language_code: str = "zh-CN", ai_model_identifier: str = None):
         self.target_language = target_language_code
@@ -57,6 +66,24 @@ class GeminiSubtitleTranslator:
                 )
                 self._parse_and_apply_translations(subtitle_segments, raw_ai_response_text, should_fix_source_errors)
                 return subtitle_segments
+
+            except TranslationCountMismatch as mismatch_error:
+                # The model merged adjacent fragments and every later index slid down
+                # (the "missing" tail is a symptom, not truncation). At temperature 0 the
+                # same prompt reproduces the same drift, so resending is wasted; halves
+                # are short enough to stay aligned. See docs/RUNBOOK.md §5.8.
+                if len(subtitle_segments) > MINIMUM_SPLIT_BATCH_SIZE:
+                    print(f"⚠️ {mismatch_error} Splitting the batch in half and retrying...", flush=True)
+                    half = len(subtitle_segments) // 2
+                    for sub_batch in (subtitle_segments[:half], subtitle_segments[half:]):
+                        self.translate_batch_of_subtitle_segments(
+                            sub_batch, source_language, should_fix_source_errors
+                        )
+                    return subtitle_segments
+                if attempt_number == maximum_api_retries - 1:
+                    self._handle_final_failure(mismatch_error)
+                    raise
+                self._perform_exponential_backoff(attempt_number, mismatch_error)
 
             except Exception as api_error:
                 if attempt_number == maximum_api_retries - 1:
@@ -237,7 +264,7 @@ Subtitles:
         expected_indices = set(range(len(segments)))
         missing_indices = expected_indices - translation_results.keys()
         if missing_indices:
-            raise ValueError(
+            raise TranslationCountMismatch(
                 f"Translation count mismatch: expected {len(segments)} lines, "
                 f"missing indices {sorted(missing_indices)[:10]}."
             )

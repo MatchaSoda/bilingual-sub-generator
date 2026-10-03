@@ -1,6 +1,7 @@
 import unittest
 import sys
 import os
+import json
 
 # Ensure the backend directory is in the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -91,6 +92,35 @@ class TestTranslateTitleFixupRound(unittest.TestCase):
         self.assertIn("【きょうの1日】", prompt)
         self.assertIn("closed list", prompt)
         self.assertIn("Title: テスト", prompt)
+
+
+def _json_lines(count, prefix="t"):
+    return json.dumps([{"index": i, "translation": f"{prefix}{i}"} for i in range(count)])
+
+
+class TestBatchSplitOnCountMismatch(unittest.TestCase):
+    def test_short_response_splits_batch_instead_of_resending(self):
+        segments = [{"text": f"s{i}"} for i in range(20)]
+        translator = FakeGeminiTranslator([
+            _json_lines(18),          # full batch drops its tail
+            _json_lines(10, "a"),     # first half
+            _json_lines(10, "b"),     # second half
+        ])
+        translator.translate_batch_of_subtitle_segments(segments, "ja")
+        self.assertEqual(len(translator.prompts_seen), 3)
+        self.assertEqual(segments[0]["translated_text"], "a0")
+        self.assertEqual(segments[9]["translated_text"], "a9")
+        self.assertEqual(segments[10]["translated_text"], "b0")
+        self.assertEqual(segments[19]["translated_text"], "b9")
+        # each half is renumbered from 0 for the model
+        self.assertIn("[0] s10", translator.prompts_seen[2])
+
+    def test_small_batch_falls_back_to_retries(self):
+        segments = [{"text": f"s{i}"} for i in range(10)]
+        translator = FakeGeminiTranslator([_json_lines(9), _json_lines(10)])
+        translator.translate_batch_of_subtitle_segments(segments, "ja")
+        self.assertEqual(len(translator.prompts_seen), 2)
+        self.assertEqual(segments[9]["translated_text"], "t9")
 
 
 if __name__ == "__main__":

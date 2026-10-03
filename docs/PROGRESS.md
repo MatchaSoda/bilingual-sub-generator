@@ -1,13 +1,47 @@
 # 当前进展 (PROGRESS)
 
 > 每次改动后更新这里。下一个接手的人 / AI 只看这个文件判断现状。
-> 最后更新：2026-09-19（下午，Docker 实测）
+> 最后更新：2026-10-03
 
 ---
 
 ## 现在的状态
 
-服务正常，**无待办故障**。09-19 加了 Docker 一键部署，同日下午在 Apple Silicon Mac 上完成首次真实构建与启动（见下）。
+10-03 修了三个导致失败循环的问题（见下）。**mover.py 有改动，需要重启 `bili-mover` 才完全生效。**
+Gemini 的 `direct-v4` 出口目前被拒（探测 0/N），流水线靠 `default` 在跑，属服务端问题，未处理。
+09-19 加了 Docker 一键部署，同日在 Apple Silicon Mac 上完成首次真实构建与启动（见下）。
+
+## 2026-10-03 这次做了什么：三个失败循环
+
+起因是「日志又有报错」。日志 3 天里 128 次 `CLI 失败`，但按视频 ID 一数只有两个视频
+（方法见 [RUNBOOK §5.6](./RUNBOOK.md#56-同一个视频每轮都失败)）：
+
+- **`urcgQPQulSs` × 113：文件名超 255 字节。** 长日文标题 + `.f399.mp4.part` = 263 字节。
+  所有标题来源的文件名统一截到 200 字节，标题翻译改用元数据里的完整标题。§5.7
+- **`R3HNFKr1OKM` × 16：`Translation count mismatch`，缺尾部编号。** 不是截断，是模型在批次
+  中间合并相邻两行导致后面全部错位；温度 0 下 5/5 复现，重试无效。现在数量不对就对半拆批。§5.8
+  （这个视频 10-02 碰巧过了一次，已投稿）
+- **Gemini `direct-v4` 路径自 09-29 起 100% 被拒**，每次重试有一半白费。现在被拒的路径在本进程内
+  不再使用。§5.5
+
+### 本次的提交
+
+```
+0d85106 backend: cap title-derived filenames at 200 bytes to avoid ENAMETOOLONG
+bc35d75 automation: byte-cap the output filename passed to entry_cli --output
+c570241 backend: split a translation batch in half when the model drops lines
+df66fe4 backend: stop using a Gemini route for the run once it is location-blocked
+```
+
+### 已知问题 / 待办
+
+- **字幕可能静默错位一行。** 复现 §5.8 时发现：半批（50 行）数量对上了，但第 43–48 行的译文各
+  错了一行，到 49 行又对齐（模型一处合并、一处拆分，正负抵消）。数量校验抓不到。可能的方向：
+  让模型同时回显原文首尾几个字做对齐校验，或者缩小默认批次。需要先量一下发生率再决定。
+- **确定性失败会无限重试**（失败不写 history）。这次两个视频分别空转了 113 和 16 轮。
+  可以考虑在 mover 里给连续失败计数、超过 N 次就跳过并告警。
+- `direct-v4` 出口被拒要在代理服务端处理（§5.5 的方法）；代码侧已经不受影响，不急。
+- 2026-09-19 的 Docker 待办见下。
 
 ## 2026-09-19（下午）：Docker 首次真实构建（macOS / Apple Silicon）
 

@@ -6,7 +6,7 @@ WARP 的 IPv4 段 0/16 全拒（Gemini 是滥用重灾区，WARP 出口被封得
 IPv4 反而 32/32 全过。
 
 所以这里不押注任何单条路径，而是让重试循环在两条路径间轮换。任何一条还活着，
-流水线就能跑；某条被封了下一次尝试自动换另一条，不需要改代码。
+流水线就能跑；某条被封了下一次尝试自动换另一条，并且本进程后续不再用它，不需要改代码。
 
 两条路径：
 
@@ -33,21 +33,49 @@ _PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "AL
 # 顺序即优先级：第 0 次尝试用第一条。目前 direct-v4 成功率明显更高，所以排前面。
 ROUTES = ("direct-v4", "default")
 
+# Gemini 按出口 IP 拒绝时的报错原文。命中的路径在本进程内不再使用：出口被封是
+# 小时~天级别的状态，同一进程里再试只是白白消耗一半的重试次数和退避时间。
+# 每个视频都是新的 entry_cli 进程，所以下一个视频会重新给它机会。见 RUNBOOK §5.5。
+LOCATION_REJECTED_MARKER = "User location is not supported"
+
+_rejected_routes = set()
+_last_route = None
+
 
 def route_for_attempt(attempt):
-    """第 attempt 次尝试该用哪条路径（attempt 从 0 开始）。"""
+    """第 attempt 次尝试该用哪条路径（attempt 从 0 开始），跳过本进程里已被拒的路径。"""
     if not GEMINI_PROXY:
         return "default"
-    return ROUTES[attempt % len(ROUTES)]
+    live_routes = [route for route in ROUTES if route not in _rejected_routes] or list(ROUTES)
+    return live_routes[attempt % len(live_routes)]
+
+
+def last_route():
+    """最近一次 gemini_network_route 实际用的路径，供失败日志标注。"""
+    return _last_route
 
 
 @contextmanager
-def gemini_network_route(attempt=0):
-    route = route_for_attempt(attempt)
-    if route == "default":
-        yield route
-        return
+def gemini_network_route(attempt=0, route=None):
+    """route 显式指定时跳过轮换和剔除逻辑（探测脚本用）。"""
+    global _last_route
+    route = route or route_for_attempt(attempt)
+    _last_route = route
+    try:
+        if route == "default":
+            yield route
+        else:
+            with _direct_v4_environment():
+                yield route
+    except Exception as error:
+        if LOCATION_REJECTED_MARKER in str(error) and route not in _rejected_routes:
+            _rejected_routes.add(route)
+            print(f"🚫 Gemini rejected route {route} by location; skipping it for the rest of this run", flush=True)
+        raise
 
+
+@contextmanager
+def _direct_v4_environment():
     saved_env = {name: os.environ.get(name) for name in _PROXY_ENV_VARS}
     saved_getaddrinfo = socket.getaddrinfo
 
@@ -63,7 +91,7 @@ def gemini_network_route(attempt=0):
         socket.getaddrinfo = ipv4_only_getaddrinfo
 
     try:
-        yield route
+        yield
     finally:
         socket.getaddrinfo = saved_getaddrinfo
         for name, value in saved_env.items():

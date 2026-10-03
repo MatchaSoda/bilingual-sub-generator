@@ -19,12 +19,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import google.generativeai as genai  # noqa: E402
 from config.keys import key_manager  # noqa: E402
 from config.settings import MODEL_NAME  # noqa: E402
-from utils.gemini_transport import ROUTES, gemini_network_route, route_for_attempt  # noqa: E402
+from utils.gemini_transport import ROUTES, gemini_network_route  # noqa: E402
 
 
-def one_call(attempt):
+def one_call(route):
     genai.configure(api_key=key_manager.get_next_available_api_key(), transport="rest")
-    with gemini_network_route(attempt):
+    # 显式指定路径：轮换逻辑会剔除被拒的路径，探测要的恰恰是每条都打满
+    with gemini_network_route(route=route):
         response = genai.GenerativeModel(MODEL_NAME).generate_content(
             "Reply with the single word OK.", request_options={"timeout": 45, "retry": None}
         )
@@ -33,12 +34,11 @@ def one_call(attempt):
 
 def main():
     calls_per_route = int(sys.argv[1]) if len(sys.argv) > 1 else 6
-    for attempt in range(len(ROUTES)):
-        route = route_for_attempt(attempt)
+    for route in ROUTES:
         successes, first_error = 0, ""
         for _ in range(calls_per_route):
             try:
-                one_call(attempt)
+                one_call(route)
                 successes += 1
                 print(".", end="", flush=True)
             except Exception as error:  # noqa: BLE001 - we want the raw text

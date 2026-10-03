@@ -6,7 +6,7 @@ import google.generativeai as genai
 from google.generativeai import protos
 from typing import List, Dict
 from config.keys import key_manager
-from utils.gemini_transport import gemini_network_route, route_for_attempt
+from utils.gemini_transport import gemini_network_route, last_route
 from config.settings import MODEL_NAME
 
 # Fixed program / segment names that appear inside 【】 on the source channel and should
@@ -276,7 +276,7 @@ Subtitles:
 
     def _perform_exponential_backoff(self, attempt, error):
         seconds_to_wait = 2 ** (attempt + 1)
-        print(f"⚠️ Attempt {attempt + 1} failed (route={route_for_attempt(attempt)}): {error}", flush=True)
+        print(f"⚠️ Attempt {attempt + 1} failed (route={last_route()}): {error}", flush=True)
         print(f"⏳ Waiting {seconds_to_wait} seconds before retrying...", flush=True)
         time.sleep(seconds_to_wait)
 

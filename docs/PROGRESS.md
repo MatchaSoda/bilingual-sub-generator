@@ -8,6 +8,8 @@
 ## 现在的状态
 
 **10-07 生产已迁到 Mac mini（Docker + OrbStack），web 和 mover 两个容器在跑**；旧 WSL 机的 `bili-mover` 已停（用户确认）。
+**新机器的第一次真实投稿 05:55 成功**（`BV1WJpN65EEH`）。在那之前 mover 在 Docker 里撞上一个只有 Docker 才有的
+跨挂载点 rename bug，已修（`fb4eba5`，RUNBOOK §5.10）。
 新机器上 `GEMINI_PROXY` 已清空，Gemini 只走 `default`（`direct-v4` 在这里 0/6，见下）。
 10-03 那三个失败循环的修复随新镜像一起生效了。
 
@@ -43,9 +45,16 @@
   （最新 10-06 21:21）的原视频 ID，全在 history 里，所以不用再导一次。用户确认旧机 mover 已停后才开 `ENABLE_AUTOMATION=1`。
 - B 站上传：`api.bilibili.com/x/web-interface/zone` 显示容器出口是国内（北京联通）；`tx` 线路从这里解析只有 1 个节点，证书有效。
 - 顺带修了 `./docker-start.sh update` 不会真的升级 yt-dlp（`ab35422`，DOCKER.md §4 有说明）。
-- mover 首轮（03:47）：载入 8908 条 history，列出 300 个视频，全在 history 里，0 个新视频，直接进入 1800 秒休眠。
-  符合预期：频道最新的几条旧机停之前已经处理过。**新机器上的第一次真实投稿还没发生**，要等频道发新视频（日本白天）。
-  `biliup list` / `show` 用同一份 cookies.json 能正常认证，上传本身（`biliup upload`、`tx` 线路）在这台机器上还没跑过。
+- mover 03:47 到 05:17 的四轮：每轮列出 300 个视频，全在 history 里，直接休眠。符合预期，频道最新的几条旧机停之前已经处理过。
+- **05:4x 第一个新视频 `lTelR_g9adE` 失败**：压制完成后 entry_cli 把封面从 `data/downloads` rename 到
+  `userdata/data`，报 `[Errno 18] Invalid cross-device link`，`CLI 失败 (Code 1)`。原因是 Docker 里这两个目录分属两个 bind mount，
+  而 rename 不能跨文件系统。裸机上它们在同一块盘，Web 界面的产出又在 downloads 里，所以以前从没撞上过。
+  09-19 的 Docker 验证没跑过 mover，今天的端到端也是走 Web。
+  不修的话每轮都会重压一遍再失败（§5.6）。修复是改用 `shutil.move`（`fb4eba5`）。
+  用旧镜像 + `--output /app/userdata/data/...` 复现出同样的 EXDEV；新镜像同一条命令 exit 0。82/82。
+- 重建容器后 mover 立刻重试 `lTelR_g9adE`，**05:55 投稿成功**，`BV1WJpN65EEH` 审核中，history 8909 条：
+  - 转写、翻译走缓存，约 8.5 分钟的 1080p 视频压制 73 秒，产出 160 MB。
+  - 上传 2 分 13 秒（`tx` 线路，国内直连）。
 
 ### 观察到、还没处理的
 

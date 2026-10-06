@@ -481,6 +481,19 @@ ls /models/hub/models--*/blobs/ | grep incomplete    # 有输出 = 没下完
 cat /proc/<pid>/net/tcp | awk '$4=="01"'             # ESTABLISHED 却零流量 = 上游挂了
 ```
 
+### 5.10 `[Errno 18] Invalid cross-device link`（只在 Docker 的 mover 上出现）
+
+症状：mover 日志里视频已经压制完（`🎬 Executing FFmpeg command` 之后 `userdata/data/` 里有完整的 mp4），
+紧接着 `Traceback ... os.rename ... Invalid cross-device link` → `❌ CLI 失败 (Code 1)`。失败不写 history（§3），
+所以每轮都会把同一个视频重新压一遍再失败（§5.6 的确定性失败），还占掉一个处理名额。
+
+机制：Docker 布局下下载缓存 `/app/data` 和 mover 的产出目录 `/app/userdata/data` 是两个 bind mount，
+`Path.rename()` 就是 rename(2)，不能跨文件系统。裸机上两者在同一块盘；Web 界面的产出和下载缓存在同一个目录，
+所以这两条路径都撞不上。2026-10-07 生产迁到 Docker 后 mover 第一次真正处理视频就踩到了（`fb4eba5` 改成 `shutil.move`）。
+
+以后在 `backend/` / `automation/` 里移动文件，只要源和目标可能分属 `data/` 与 `userdata/`，就用 `shutil.move`，
+同一目录内的 `os.replace`（history / state 的原子写）不受影响。
+
 ---
 
 ## 6. 验证脚本

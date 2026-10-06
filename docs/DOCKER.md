@@ -99,7 +99,7 @@ git clone <仓库> && cd bilingual-sub-generator
 - **迁移时把 `history.json` 一起带过来，或者把 `config.json` 的 `backfill.mode` 设成 `since_first_start`。**
   两样都没有，第一轮起就会把频道最近 `playlist_items` 个（example 是 300）视频全部重新投一遍（RUNBOOK §4「起点水位」）。
 - **Hugging Face 走代理可能卡死在收尾。** 镜像里已关掉 xet 协议（`HF_HUB_DISABLE_XET=1`），启动前的模型检查
-  会先代理后直连。任务日志若停在 `Loading Whisper model` 十几分钟不动，看 RUNBOOK §5.6。
+  会先代理后直连。任务日志若停在 `Loading Whisper model` 十几分钟不动，看 RUNBOOK §5.9。
 - **YouTube cookie 不是可选项。** 生产用的 `mweb` 客户端没有登录 cookie 时，YouTube 直接返回
   `Sign in to confirm you're not a bot`——日本直连和经代理都一样（09-19 实测）。所以向导第 3 步的
   cookie 必须给，否则 Web 界面能开但提交任务必失败。

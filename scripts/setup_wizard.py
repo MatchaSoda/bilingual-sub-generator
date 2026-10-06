@@ -646,7 +646,7 @@ def download_whisper_model(model, proxy):
     """下载模型，返回 (成功?, 说明)。先按配置的代理下，失败再直连试一次。
 
     - 断点续传靠 huggingface_hub 自己（blobs/*.incomplete），被杀掉重跑会接着下。
-    - 镜像里 HF_HUB_DISABLE_XET=1 走普通 HTTPS，读超时后会重试，不会像 xet 那样无限期挂住（RUNBOOK §5.6）。
+    - 镜像里 HF_HUB_DISABLE_XET=1 走普通 HTTPS，读超时后会重试，不会像 xet 那样无限期挂住（RUNBOOK §5.9）。
     """
     from faster_whisper import download_model
     routes = [(proxy, f"经代理 {proxy}")] if proxy else []

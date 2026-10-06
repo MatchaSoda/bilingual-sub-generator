@@ -450,7 +450,7 @@ Linux 单个文件名上限是 **255 字节**，不是字符。日文 / 中文 U
 
 ---
 
-### 5.6 卡在 `Loading Whisper model`，CPU 几乎为零
+### 5.9 卡在 `Loading Whisper model`，CPU 几乎为零
 
 症状：任务日志停在 `📡 Loading Whisper model: large-v3-turbo (cpu/int8)...`，之后只有一行 HF Hub 的匿名请求警告，
 `entry_cli.py` CPU 个位数，十几分钟不动。Docker 首跑（09-19）就是这样，卡了 17 分钟。

@@ -94,7 +94,7 @@ df66fe4 backend: stop using a Gemini route for the run once it is location-block
 
 用 Web API 提交 `T3VwdAhbbQg`（日テレ 71 秒新闻）。第一次卡在 `Loading Whisper model` 17 分钟：模型 blob 已完整但仍是
 `.incomplete`（我之前 `docker kill` 探测容器时把后台预下载一起杀了），hf_xet 经 Clash 收尾挂死；向导 `--check` 却报「已缓存」。
-处置见 RUNBOOK §5.6（`local_files_only` 优先、`HF_HUB_DISABLE_XET=1`、启动前 `--download-model`、缓存判断看 `model.bin`）。
+处置见 RUNBOOK §5.9（`local_files_only` 优先、`HF_HUB_DISABLE_XET=1`、启动前 `--download-model`、缓存判断看 `model.bin`）。
 
 重提后全程约 1.5 分钟：下载 399+251（PO Token + deno 解 n 参数都走通）→ 转写 35 秒 → Gemini 翻译 16 段 3 秒 →
 标题译为「【白银周】交通状况及台风影响」→ ffmpeg 压制 26 秒 → 1920x1080 h264 70.7 秒。抽帧确认主字幕 / 中文副字幕 /

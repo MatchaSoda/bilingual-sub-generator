@@ -6,7 +6,7 @@ class AudioTranscriptionEngine:
     def __init__(self, model_size="base", computing_device="cpu", calculation_precision="int8"):
         print(f"📡 Loading Whisper model: {model_size} ({computing_device}/{calculation_precision})...", flush=True)
         # 先只看本地缓存：完整模型在的话不碰网络。否则 huggingface_hub 每次都要去 huggingface.co 核对版本，
-        # 代理 / HF 一抖，整条流水线就卡在这一行（见 docs/RUNBOOK.md §5.6）。
+        # 代理 / HF 一抖，整条流水线就卡在这一行（见 docs/RUNBOOK.md §5.9）。
         try:
             self.whisper_model = WhisperModel(model_size, device=computing_device,
                                               compute_type=calculation_precision, local_files_only=True)

@@ -7,9 +7,62 @@
 
 ## 现在的状态
 
-10-03 修了三个导致失败循环的问题（见下）。**mover.py 有改动，需要重启 `bili-mover` 才完全生效。**
-Gemini 的 `direct-v4` 出口目前被拒（探测 0/N），流水线靠 `default` 在跑，属服务端问题，未处理。
-09-19 加了 Docker 一键部署，同日在 Apple Silicon Mac 上完成首次真实构建与启动（见下）。
+**10-07 生产已迁到 Mac mini（Docker + OrbStack），web 和 mover 两个容器在跑**；旧 WSL 机的 `bili-mover` 已停（用户确认）。
+新机器上 `GEMINI_PROXY` 已清空，Gemini 只走 `default`（`direct-v4` 在这里 0/6，见下）。
+10-03 那三个失败循环的修复随新镜像一起生效了。
+
+## 2026-10-07：生产迁到 Mac mini（Docker + OrbStack）
+
+机器：Apple M6（2 超大核 + 4 性能核 + 6 能效核）/ 16 GB / macOS 27，中国大陆网络，代理是 Clash Verge 7897。
+用户还拿它当桌面用（UU 远程）。选 Docker 而不是 macOS 裸机，原因有三：
+
+- `yt-dlp-getpot-wpc` 1.1.2 源码里写死了 `headless=False`，裸机每次下载都会在桌面弹出一个 Chrome。
+- Docker 路线 09-19 已在 Apple Silicon 上验证过，裸机文档只覆盖 Linux。
+- faster-whisper 在 Mac 上没有 Metal 后端，裸机也只能用 CPU。
+
+运行时选 OrbStack 而不是 Docker Desktop：同一份 compose，空闲内存会还给 macOS。
+
+### 做了什么
+
+- OrbStack 2.2.3（`brew install --cask orbstack`）。图形引导没走，手工把 docker CLI 和 compose / buildx 插件链上
+  （DOCKER.md §4），设了 `app.start_at_login=true`。
+- 导入用户带来的包（`.env`、cookies.txt、B 站 cookies.json、config.json、history 8908 条），然后改 `userdata/.env`：
+  - 代理 `10808` 改成 `http://host.docker.internal:7897`
+  - `GEMINI_PROXY` 清空
+  - 补上 `NO_PROXY`（B 站域名）
+  - `TZ=Asia/Shanghai`
+  - config.json 没动（无 `backfill` 段，按老账号 `all` 模式带 history 继续）。
+- 首次构建约 37 分钟（apt 18、pip 16、npm 7 分钟），网速 0.5–1 MB/s。Whisper 模型 45 分钟，经代理断了 3 次，靠续传下完。
+- 体检 6/6。Gemini 两条路径各打 6 次：`direct-v4` 0/6（`location is not supported`），`default` 6/6。
+  原因是 socks5 + 本地解析到了 Clash 只剩 IP，被按 IP 规则分到了不支持的出口。所以清空 `GEMINI_PROXY`。
+- 端到端（Web API，`T3VwdAhbbQg`，71 秒新闻）：**55 秒出片**（09-19 MacBook Air 约 1.5 分钟）。
+  - 下载 399+251，经代理 3.9 MB/s。
+  - 转写，翻译 16 段。标题译为「【白银周】交通状况如何？台风是否有影响」。
+  - 成片 1920x1080 h264，70.7 秒。抽 12 秒、47.8 秒两帧：日文主字幕、振假名、中文副字幕三层都正常，Noto CJK 无豆腐块。
+- 防重投：包里的 history 最后写入是 10-06 23:24。用 `biliup list` + `biliup show` 核对 B 站最近 10 条投稿
+  （最新 10-06 21:21）的原视频 ID，全在 history 里，所以不用再导一次。用户确认旧机 mover 已停后才开 `ENABLE_AUTOMATION=1`。
+- B 站上传：`api.bilibili.com/x/web-interface/zone` 显示容器出口是国内（北京联通）；`tx` 线路从这里解析只有 1 个节点，证书有效。
+- 顺带修了 `./docker-start.sh update` 不会真的升级 yt-dlp（`ab35422`，DOCKER.md §4 有说明）。
+- mover 首轮（03:47）：载入 8908 条 history，列出 300 个视频，全在 history 里，0 个新视频，直接进入 1800 秒休眠。
+  符合预期：频道最新的几条旧机停之前已经处理过。**新机器上的第一次真实投稿还没发生**，要等频道发新视频（日本白天）。
+  `biliup list` / `show` 用同一份 cookies.json 能正常认证，上传本身（`biliup upload`、`tx` 线路）在这台机器上还没跑过。
+
+### 观察到、还没处理的
+
+- 体检时出现 7 次 `[pot:wpc] Timed out waiting for WebPoClient to be available in browser`，但同一次实测最后拿到了 1080p；
+  单独 `yt-dlp -v` 21 秒拿到 gvs token，端到端任务里也没出现。疑似浏览器冷启动加上经代理加载 YouTube 太慢，先观察
+  mover 日志里的出现频率。
+- **`/api/config` 会把明文 Gemini key 返回给任何能访问 8501 的客户端**，而 OrbStack 默认把端口开到局域网
+  （`docker.expose_ports_to_lan: true`）。以前在 WSL 上也是 `0.0.0.0`，不是这次引入的，但现在机器在家庭局域网里长期开着。
+- 我在做缓存实验时跑了 `docker builder prune`，把项目的构建缓存也清了，导致下一次 build 重下了 pip 那层（多花约 13 分钟）。已写进 DOCKER.md / CLAUDE.md：别 prune。
+
+### 待办（用户）
+
+- 这台 Mac 当服务器的系统设置（需要 sudo，AI 不能代做）：
+  - `sudo pmset -a sleep 0 autorestart 1`：现在 `sleep 1`，Claude / UU 远程一退出机器就会睡，OrbStack 睡眠时会暂停容器。
+  - 关掉「自动安装 macOS 更新」：FileVault 开着又没有自动登录，自动更新重启后会停在解锁界面，服务全停。
+  - 打开「远程登录」（SSH），macOS 26+ 可以开机时 SSH 远程解锁 FileVault。
+- 旧 WSL 机保持 `disable`，新机器稳定跑几天后再决定是否清理。
 
 ## 2026-10-07：迁移脚本支持裸机 / Docker 互迁
 
@@ -22,8 +75,8 @@ Gemini 的 `direct-v4` 出口目前被拒（探测 0/N），流水线靠 `defaul
 - `docker-start.sh export/import` 改为调用这个脚本，并且挪到 docker 检查之前执行。
 - 用法见 DOCKER.md §3.5，测试在 `backend/tests/test_migrate.py`。
 
-**迁移待办（用户进行中）：** 新机器跑通 → 旧机 `sudo systemctl disable --now bili-mover` → 再导出一次 → 导入 → 新机开自动搬运。
-旧机上 10-03 的 mover.py 改动还没重启生效；如果直接迁走，就不用在旧机上重启了。
+**迁移待办：** ~~新机器跑通 → 旧机 `sudo systemctl disable --now bili-mover` → 再导出一次 → 导入 → 新机开自动搬运。~~
+已完成，见上一节（没有再导出一次，因为 B 站投稿记录核对过 history 无缺口）。
 
 ## 2026-10-03 这次做了什么：三个失败循环
 

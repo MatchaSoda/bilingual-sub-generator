@@ -7,9 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 日语视频 → 中日双语硬字幕视频的全自动流水线。两种用法共用同一套后端：
 
 - **交互式**：Web UI（Next.js + FastAPI），手工提交单个 URL，可实时调字幕样式。
-- **无人值守**：`automation/mover.py` 作为 systemd 常驻服务，定期扫描 YouTube 频道 → 生成双语视频 → 自动投稿 B 站。
+- **无人值守**：`automation/mover.py` 作为常驻服务，定期扫描 YouTube 频道 → 生成双语视频 → 自动投稿 B 站。
+  现在的生产是 Mac mini 上 Docker 的 `mover` 容器（2026-10-07 起）；之前是 WSL2 裸机上的 systemd `bili-mover.service`。
 
-**这是一个长期在线运行的生产服务**，不是纯代码库。改动 `automation/` 或 `backend/engines/media_downloader.py` 会直接影响正在跑的 `bili-mover.service`。动手前先读 `docs/RUNBOOK.md`。
+**这是一个长期在线运行的生产服务**，不是纯代码库。动手前先读 `docs/RUNBOOK.md`。生产是 Docker，代码 COPY 在镜像里：
+改了仓库里的文件不会影响正在跑的服务，要 `docker compose build` 再 `./docker-start.sh` 才生效，而重建会打断 mover 正在处理的视频
+（失败不写 history，下一轮会重试）。
 
 ## 文档分工
 
@@ -25,7 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 常用命令
 
-两套部署方式：**裸机**（WSL2 生产机，venv 在仓库根）和 **Docker**（macOS 开发机，venv 在容器 `/app/venv`）。
+两套部署方式：**裸机**（venv 在仓库根，旧 WSL2 生产机用的）和 **Docker**（venv 在容器 `/app/venv`，现在的生产机 Mac mini 用的）。
 先看 `.git` 旁边有没有 `venv/`：没有就是 Docker 机，下面的命令都要套进容器跑。
 
 所有 Python 命令都用仓库内的 venv，**不要用系统 python3**（依赖只装在 venv 里）：
@@ -54,7 +57,9 @@ Docker 部署：`./docker-start.sh`（首次进向导；改了 `userdata/.env` �
 `./docker-start.sh check`（体检配置）、`./docker-start.sh model`（确保 Whisper 模型在，启动时自动做）、`./docker-start.sh shell`（进容器）。任何要在容器里跑的一次性命令用
 `docker compose run --rm -T setup bash -c '...'`；改了 `backend/` 或 `scripts/` 要 `docker compose build` 后 `up -d` 才生效（代码是 COPY 进镜像的，不是挂载）。
 
-自动化服务的操作命令见 `docs/RUNBOOK.md`（涉及 systemd 和状态文件，有顺序要求）。
+自动化服务的操作命令见 `docs/RUNBOOK.md`（涉及 systemd 和状态文件，有顺序要求）。RUNBOOK 里的 `journalctl -u bili-mover`
+在 Docker 上换成 `docker compose logs mover`（`--since 48h` 一样能用），`systemctl stop/start bili-mover` 换成
+`docker compose stop mover` / `./docker-start.sh`。
 
 ## 架构要点
 
@@ -75,7 +80,8 @@ entry_cli.py  ──►  media_downloader (yt-dlp)
 - `automation/mover.py` ← 自动搬运
 - `automation/backfill.py` ← 单条补投
 
-**这个设计有个重要后果**：改 `backend/` 下的代码**不需要重启** `bili-mover.service`，因为每个视频都新起一个 `entry_cli.py` 进程。只有改 `automation/mover.py` 本身才需要重启。
+**这个设计有个重要后果**：裸机上改 `backend/` 下的代码**不需要重启** `bili-mover.service`，因为每个视频都新起一个 `entry_cli.py` 进程。只有改 `automation/mover.py` 本身才需要重启。
+Docker 上没有这个便利：不管改哪里都要重建镜像、重建容器（见上面「项目定位」）。
 
 ### 中间产物有缓存，会跳过重算
 
@@ -157,13 +163,27 @@ Co-Authored-By: <实际模型名> <noreply@anthropic.com>
 
 ## 环境约束
 
-### 裸机生产机（WSL2，跑着 `bili-mover.service`）
+### 生产机（Mac mini，Apple M6 / 16 GB，macOS 27，Docker + OrbStack，2026-10-07 起）
+
+- 在中国大陆（北京联通）。代理是 Clash Verge 混合端口 `127.0.0.1:7897`，出口在日本；容器里写 `http://host.docker.internal:7897`。
+  `GEMINI_PROXY` 留空：那条绕行在这里 0/6，被分到地区不支持的出口（DOCKER.md §4）。
+- DNS 被污染：容器里 `www.youtube.com` 解析成 Facebook 的 IP。OrbStack 会把没设代理的容器流量透明地转给系统代理，
+  但域名仍在本地解析，所以 YouTube / Hugging Face 一定要显式走代理；别拿「容器直连」的结果判断网络。
+- B 站域名在 `NO_PROXY` 里，出口是国内；`tx` 上传线路从这里解析只有 1 个节点，证书有效（10-07）。
+- `docker` 命令是 `/opt/homebrew/bin/docker` → OrbStack 自带的二进制（图形引导没走完，手工链的），compose / buildx 插件在
+  `~/.docker/cli-plugins/`。OrbStack 随登录启动，容器靠 `restart: unless-stopped` 跟着起来。
+- 网速约 0.5–1 MB/s：首次构建约 37 分钟，模型 1.6 GB 下了 45 分钟（经代理中途断了 3 次，靠续传）。
+  **别 `docker builder prune`**，清了缓存下次 build 会重下装依赖那一层。
+- 机器本身：FileVault 开着，重启后要有人解锁（macOS 26+ 可以 SSH 远程解锁），否则 OrbStack 起不来。
+  用户通过 UU 远程用这台机器，平时也拿来当桌面用。
+
+### 旧裸机生产机（WSL2，`bili-mover.service`，2026-10-07 已停）
 
 - 代理在 `127.0.0.1:10808`。**这个端口是 SOCKS5，不是 HTTP**——`http://127.0.0.1:10808` 对部分站点可用、对另一些会连接失败，这已经造成过线上故障，详见 runbook。
 - systemd 服务的环境变量里同时有 `HTTP_PROXY`(http://) 和 `ALL_PROXY`(socks5://)，子进程会继承，注意这对 `biliup` 的影响。
 - `sudo systemctl` 需要密码，AI 无法直接执行，需要请用户在会话里用 `! sudo systemctl ...` 运行。
 
-### Docker 开发机（macOS，Apple Silicon，Docker Desktop）
+### Docker 开发机（MacBook Air，Apple Silicon，Docker Desktop）
 
 - 代理是 Clash Verge 混合端口 `127.0.0.1:7897`，shell 里有 `HTTP_PROXY=http://127.0.0.1:7897`。容器里要写
   `http://host.docker.internal:7897`（已在 `userdata/.env`）。shell 里的代理变量**不会**被 buildx 带进构建容器

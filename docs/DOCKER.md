@@ -11,7 +11,8 @@ git clone <仓库地址> && cd bilingual-sub-generator
 ```
 
 前提：装好 [Docker Desktop](https://docs.docker.com/get-docker/)（Windows / macOS）或 Docker Engine + compose 插件（Linux）。
-Windows 在 **WSL 终端或 Git Bash** 里运行脚本。
+Windows 在 **WSL 终端或 Git Bash** 里运行脚本。macOS 上要长期开着跑（当服务器用）推荐 [OrbStack](https://orbstack.dev)，
+同一份 compose 直接能用，空闲内存会还给系统；装法和坑见 §4。
 
 设置向导会依次带你完成这些事，每一步都当场联网验证：
 
@@ -147,7 +148,24 @@ scripts/migrate.sh import <那个 .tar.gz>     # 自动判断这台是裸机还�
 - **资源。** 镜像 3 GB + 模型 1.6 GB + 每个视频的中间产物几十 MB；内存高峰约 2 GB（large-v3-turbo int8）。
   给 Docker 至少 4 GB 内存、10 GB 磁盘。容器日志已限制在 5×20 MB 轮转，PID 1 是 tini（`init: true`）负责回收
   每个任务留下的 chromium 僵尸进程。
-- **yt-dlp 会过期。** YouTube 改接口时要 `./docker-start.sh update` 重建镜像。
+- **yt-dlp 会过期。** YouTube 改接口时运行 `./docker-start.sh update`：拉代码、`build --pull`，并传一个新的
+  `YTDLP_REFRESH`，让 Dockerfile 里单独升级 yt-dlp 的那一层重跑（其余层走缓存，半分钟左右）。
+  以前只有 `--pull`：基础镜像没变时装依赖那层命中缓存，yt-dlp 根本不会升级（10-07 实测）。
+- **macOS 用 OrbStack（10-07 生产机 Mac mini 实测）。** `brew install --cask orbstack` 之后如果没在图形界面里走完
+  首次引导，`docker` 不在 PATH 里，`docker compose` 也认不出来。把 `/Applications/OrbStack.app/Contents/MacOS/xbin/`
+  下的 `docker` 链进 PATH（例如 `/opt/homebrew/bin`），`docker-compose`、`docker-buildx` 链进 `~/.docker/cli-plugins/` 即可。
+  `orbctl config set app.start_at_login true` 让它随登录启动，容器靠 `restart: unless-stopped` 跟着恢复。
+  **别随手 `docker builder prune`**：清掉构建缓存后下一次 build 会把装依赖那层整个重下一遍。
+- **中国大陆网络（10-07 Mac mini 实测，Clash Verge 混合端口 7897）。**
+  - OrbStack 默认 `network_proxy: auto`，跟随 macOS 系统代理：拉镜像走它；容器里没设代理的流量也会被它透明地转给系统代理，
+    **但域名在本地解析**，`www.youtube.com` 被污染成 Facebook 的 IP，所以容器「直连」YouTube 不通。
+    `userdata/.env` 仍要写 `http://host.docker.internal:7897`。
+  - 构建不用额外传代理参数，apt / pip / npm 都通，只是慢：首次构建约 37 分钟（apt 18、pip 16、npm 7）。
+  - `GEMINI_PROXY` 留空。那条 socks5 + 本地解析的绕行到了 Clash 只剩 IP，会被按 IP 规则分到地区不支持的出口，
+    探测 `direct-v4` 0/6、`default` 6/6（RUNBOOK §5.5）。
+  - B 站域名在 `NO_PROXY` 里，`api.bilibili.com/x/web-interface/zone` 显示出口是国内，上传不绕路。
+  - 模型下载经代理会中途断开（`peer closed connection without sending complete message body`，每次几百 MB），
+    靠 `.incomplete` 续传，再跑一次 `./docker-start.sh model` 接着下就行。
 
 ## 5. 这套部署对运行中裸机服务的影响
 

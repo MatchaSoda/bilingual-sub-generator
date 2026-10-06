@@ -44,6 +44,11 @@ COPY requirements.txt ./
 RUN python -m venv /app/venv \
     && /app/venv/bin/pip install --upgrade pip \
     && /app/venv/bin/pip install -r requirements.txt
+# yt-dlp 跟着 YouTube 改接口频繁发版，过期了就下载失败（RUNBOOK §5.3）。上面那层只在 requirements.txt 或基础镜像
+# 变了才重跑，build --pull 也不会让它失效，所以 ./docker-start.sh update 每次传一个新的 YTDLP_REFRESH，
+# 只让这一层重跑、把 yt-dlp 升到最新，其余层照常走缓存。
+ARG YTDLP_REFRESH=0
+RUN echo "yt-dlp refresh: ${YTDLP_REFRESH}" && /app/venv/bin/pip install --upgrade "yt-dlp[default]"
 
 # Hugging Face 下载走普通 HTTPS 而不是 xet 分块协议：xet 经代理时收尾环节会无限期挂住（09-19 实测，
 # 文件已完整仍卡 17 分钟），普通 HTTPS 有读超时 + Range 续传，卡了会自己重试。见 docs/RUNBOOK.md §5.6。

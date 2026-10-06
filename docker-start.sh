@@ -5,7 +5,7 @@
 #   ./docker-start.sh setup      重新跑设置向导（换 cookie、改代理、加频道…）
 #   ./docker-start.sh logs       跟踪日志
 #   ./docker-start.sh stop       停止
-#   ./docker-start.sh update     拉最新代码并重建镜像（yt-dlp 过期时用）
+#   ./docker-start.sh update     拉最新代码、重建镜像并把 yt-dlp 升到最新（yt-dlp 过期时用）
 #   ./docker-start.sh shell      进容器排查
 #   ./docker-start.sh check      不交互地体检当前配置
 #   ./docker-start.sh model      只确保 Whisper 模型已下载（启动时会自动做，这个是手动触发）
@@ -165,8 +165,10 @@ case "$cmd" in
         if [ -d .git ]; then
             say "拉取最新代码"; git pull --ff-only || warn "git pull 失败，只重建镜像"
         fi
-        say "重建镜像"
-        docker compose build --pull
+        say "重建镜像，并把 yt-dlp 升到最新"
+        # 只有 --pull 的话，基础镜像没变时装依赖那层命中缓存，yt-dlp 根本不会升级。
+        # YTDLP_REFRESH 每次都不同，让 Dockerfile 里升级 yt-dlp 的那一层必定重跑（其余层仍走缓存）。
+        docker compose build --pull --build-arg YTDLP_REFRESH="$(date +%s)"
         # shellcheck disable=SC2046
         docker compose $(profile_args) up -d --remove-orphans
         ;;

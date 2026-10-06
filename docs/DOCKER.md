@@ -58,7 +58,7 @@ docker volume whisper-models   Whisper 模型缓存
 | 停止 | `./docker-start.sh stop` |
 | yt-dlp 过期 / 更新代码 | `./docker-start.sh update` |
 | 进容器排查 | `./docker-start.sh shell` |
-| 迁移：导出 / 导入用户数据 | `./docker-start.sh export`、`./docker-start.sh import <包>`（§3.5） |
+| 迁移：导出 / 导入用户数据 | `./docker-start.sh export`、`./docker-start.sh import <包>`（§3.5，裸机用 `scripts/migrate.sh`） |
 | 补投单个视频 | `docker compose run --rm setup bash -c "cd automation && ../venv/bin/python3 backfill.py <url>"` |
 
 手改了 `userdata/.env` 后重新执行 `./docker-start.sh`（它跑的是 `docker compose up -d`，配置变了会自动
@@ -66,24 +66,40 @@ docker volume whisper-models   Whisper 模型缓存
 Gemini key 也可以在 Web 界面「系统设置」里填，后端会写到 `userdata/.env` 并立即对新任务生效，不用重启。
 手改 `userdata/config.json` 不用重启，下一轮扫描生效（同裸机）。
 
-## 3.5 迁移到另一台机器
+## 3.5 迁移到另一台机器（裸机 / Docker 互通）
+
+`scripts/migrate.sh` 不依赖 Docker，四个方向都能用：裸机→裸机、裸机→Docker、Docker→裸机、Docker→Docker。
+`./docker-start.sh export` / `import` 就是它加上 `--from docker` / `--to docker`。
 
 ```bash
-# 旧机器
-./docker-start.sh export                     # 生成 bilingual-sub-userdata-<日期>.tar.gz（不含生成的视频）
+# 旧机器（先停自动搬运，见下）
+scripts/migrate.sh export                    # 生成 bilingual-sub-userdata-<日期>.tar.gz
 # 新机器
 git clone <仓库> && cd bilingual-sub-generator
-./docker-start.sh import <那个 .tar.gz>       # 解开到 userdata/，自动把 ENABLE_AUTOMATION 置 0
-./docker-start.sh                            # 检测到 key / cookie 齐全 → 先体检；6/6 直接启动，否则进向导补代理
+scripts/migrate.sh import <那个 .tar.gz>     # 自动判断这台是裸机还是 Docker；判断不对就加 --to bare / --to docker
+# Docker：./docker-start.sh   裸机：venv/bin/python3 scripts/setup_wizard.py --check
 ```
 
-三件事要知道：
+带走的就这 6 个文件，包里统一按 `userdata/` 的结构放（所以老版本 `docker-start.sh export` 打的包也能导）：
 
-- **代理地址跟机器走。** 包里的 `HTTP_PROXY` 是旧机器的；体检不通过时向导第 1 步会重新探测（先试直连）。
-- **两边别同时投稿。** 导入时自动关掉自动搬运；新机器跑通后，先停旧机器（裸机 `sudo systemctl disable --now bili-mover`，
-  Docker `./docker-start.sh stop`），再在新机器 `./docker-start.sh setup` 到第 4 步打开。
-  旧机器在导出之后、停掉之前处理过的视频不在包里的 `history.json` 里，新机器会再投一遍——想零重复就停旧机后再导出一次。
-- **包里有登录凭据**，传完删掉。
+| 文件 | 裸机位置 | Docker 位置 |
+|---|---|---|
+| `.env`（key、代理） | 仓库根 | `userdata/` |
+| `cookies.txt`（YouTube） | 仓库根 | `userdata/` |
+| `cookies.json`（B 站登录）、`config.json`、`history.json`、`state.json` | `automation/` | `userdata/` |
+
+不带：生成的视频（`automation/data`、`userdata/data`）、`data/downloads` 缓存、Whisper 模型（新机器重新下载）。
+
+脚本会自动处理、或者会拦下来的情况：
+
+- **代理主机名。** 导入到 Docker 时，代理变量里的 `127.0.0.1` 会换成 `host.docker.internal`；导入到裸机时反过来换。
+  端口和协议保持旧机器的设置，新机器不一样的话，体检会报出来，再用向导第 1 步改。`NO_PROXY` 不会被改。
+- **两边别同时投稿。** 导入到 Docker 时会把 `ENABLE_AUTOMATION` 置 0；裸机导入不会碰 systemd。
+  旧机器还在跑时导出会给警告：之后处理的视频不在包里的 history，新机器会再投一遍。所以要先停旧机器
+  （裸机 `sudo systemctl disable --now bili-mover`，Docker `./docker-start.sh stop`），再导出。
+- **不覆盖已有数据。** 目标机器上已有 key / cookie / history 时，导入会拒绝；加 `--force` 才覆盖，原文件备份成 `.bak-<时间>`。
+  同一台机器上裸机和 Docker 两份数据都有时，导出要用 `--from` 指明导哪份。
+- **包里有登录凭据**（权限 600），传完删掉。
 
 ## 4. 已知限制与坑
 

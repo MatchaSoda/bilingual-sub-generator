@@ -21,7 +21,7 @@
 ./docker-start.sh     # 首次会构建镜像并进入设置向导，按提示填代理 / key / cookie
 ```
 
-向导会逐步验证每项配置。换机器：旧机 `./docker-start.sh export`，新机 `./docker-start.sh import <包>` 再 `./docker-start.sh`。详见 [docs/DOCKER.md](./docs/DOCKER.md)。
+向导会逐步验证每项配置。换机器：旧机 `scripts/migrate.sh export`，新机 `scripts/migrate.sh import <包>`，裸机和 Docker 之间可以互迁，详见 [docs/DOCKER.md](./docs/DOCKER.md) §3.5。
 
 ### 方式 B：裸机安装（直接跑在自己电脑 / 服务器上）
 
@@ -46,6 +46,7 @@ venv/bin/python3 scripts/setup_wizard.py                            # 和 Docker
 ```
 
 向导把配置写到仓库根的 `.env`、`cookies.txt` 和 `automation/config.json`。以后想体检：`venv/bin/python3 scripts/setup_wizard.py --check`。
+从别的机器（裸机或 Docker）迁过来的，先 `scripts/migrate.sh import <包>` 再跑向导或 `--check`（DOCKER.md §3.5）。
 
 #### 3. 运行
 

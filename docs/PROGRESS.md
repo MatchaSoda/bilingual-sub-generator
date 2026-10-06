@@ -1,7 +1,7 @@
 # 当前进展 (PROGRESS)
 
 > 每次改动后更新这里。下一个接手的人 / AI 只看这个文件判断现状。
-> 最后更新：2026-10-03
+> 最后更新：2026-10-07
 
 ---
 
@@ -10,6 +10,20 @@
 10-03 修了三个导致失败循环的问题（见下）。**mover.py 有改动，需要重启 `bili-mover` 才完全生效。**
 Gemini 的 `direct-v4` 出口目前被拒（探测 0/N），流水线靠 `default` 在跑，属服务端问题，未处理。
 09-19 加了 Docker 一键部署，同日在 Apple Silicon Mac 上完成首次真实构建与启动（见下）。
+
+## 2026-10-07：迁移脚本支持裸机 / Docker 互迁
+
+用户准备把生产从这台 WSL 裸机迁到另一台电脑，迁过去用裸机还是 Docker 都要能用。原来的 `./docker-start.sh export`
+只打包 `userdata/`（裸机上这个目录是空的），而且脚本开头就要求 docker 在运行，所以裸机上根本走不到导出。
+
+- 新增 `scripts/migrate.sh export|import`，不依赖 Docker。包格式仍然是 `userdata/` 结构，兼容旧包；
+  导入时自动判断目标部署方式（userdata 已有数据 → Docker，有 venv/ → 裸机，都没有 → Docker），也可以用 `--to` 指定。
+  代理主机名在 `127.0.0.1` 和 `host.docker.internal` 之间自动换；目标机器已有数据时拒绝覆盖（`--force` 覆盖并备份）。
+- `docker-start.sh export/import` 改为调用这个脚本，并且挪到 docker 检查之前执行。
+- 用法见 DOCKER.md §3.5，测试在 `backend/tests/test_migrate.py`。
+
+**迁移待办（用户进行中）：** 新机器跑通 → 旧机 `sudo systemctl disable --now bili-mover` → 再导出一次 → 导入 → 新机开自动搬运。
+旧机上 10-03 的 mover.py 改动还没重启生效；如果直接迁走，就不用在旧机上重启了。
 
 ## 2026-10-03 这次做了什么：三个失败循环
 
@@ -27,10 +41,10 @@ Gemini 的 `direct-v4` 出口目前被拒（探测 0/N），流水线靠 `defaul
 ### 本次的提交
 
 ```
-0d85106 backend: cap title-derived filenames at 200 bytes to avoid ENAMETOOLONG
-bc35d75 automation: byte-cap the output filename passed to entry_cli --output
-c570241 backend: split a translation batch in half when the model drops lines
-df66fe4 backend: stop using a Gemini route for the run once it is location-blocked
+a55ea39 backend: cap title-derived filenames at 200 bytes to avoid ENAMETOOLONG
+f55f879 automation: byte-cap the output filename passed to entry_cli --output
+186ba3b backend: split a translation batch in half when the model drops lines
+9b20049 backend: stop using a Gemini route for the run once it is location-blocked
 ```
 
 ### 已知问题 / 待办

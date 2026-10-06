@@ -3,6 +3,7 @@ import re
 import argparse
 import time
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -154,7 +155,8 @@ def run_subtitle_generation_pipeline():
     original_thumbnail = DOWNLOADS_DIR / f"{video_title}.jpg"
     final_thumbnail = final_video_output_path.with_suffix(".jpg")
     if original_thumbnail.exists() and not final_thumbnail.exists():
-        original_thumbnail.rename(final_thumbnail)
+        # shutil.move 而不是 rename：Docker 里 data/ 和 userdata/ 是两个挂载点，跨挂载点 rename 报 EXDEV（RUNBOOK §5.10）
+        shutil.move(str(original_thumbnail), str(final_thumbnail))
         print(f"✅ Thumbnail synchronized: {final_thumbnail}", flush=True)
 
     print(f"🎉 All done! Final video: {final_video_output_path}", flush=True)

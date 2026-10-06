@@ -9,8 +9,8 @@
 #   ./docker-start.sh shell      进容器排查
 #   ./docker-start.sh check      不交互地体检当前配置
 #   ./docker-start.sh model      只确保 Whisper 模型已下载（启动时会自动做，这个是手动触发）
-#   ./docker-start.sh export     打包 userdata/（key、cookie、频道、历史）用于迁移到别的机器
-#   ./docker-start.sh import X   在新机器上导入上面打的包，然后 ./docker-start.sh 即可
+#   ./docker-start.sh export     打包 key、cookie、频道、历史，用于迁移到别的机器（= scripts/migrate.sh export --from docker）
+#   ./docker-start.sh import X   在新机器上导入包（裸机导出的也行），然后 ./docker-start.sh 即可
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -18,6 +18,12 @@ GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 say()  { echo -e "${GREEN}▶ $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $*${NC}"; }
 die()  { echo -e "${RED}✖ $*${NC}" >&2; exit 1; }
+
+# 迁移不需要 docker 在跑（新机器可能还没装好），交给通用脚本，裸机和 Docker 的包互通
+case "${1:-}" in
+    export) exec scripts/migrate.sh export --from docker "${@:2}" ;;
+    import) exec scripts/migrate.sh import "${@:2}" --to docker ;;
+esac
 
 # ---------- 0. Docker 在不在 ----------
 if ! command -v docker >/dev/null 2>&1; then
@@ -167,39 +173,6 @@ case "$cmd" in
     shell)
         ensure_image
         docker compose run --rm --entrypoint bash setup
-        ;;
-    export)
-        # 不带 userdata/data/（生成好的视频，可能很大）和 .setup-done（新机器要重新体检）
-        out="${2:-bilingual-sub-userdata-$(date +%Y%m%d-%H%M).tar.gz}"
-        tar czf "$out" --exclude='userdata/data' --exclude='userdata/.setup-done' --exclude='userdata/.env.bak-*' \
-            --exclude='userdata/history.lock' userdata
-        chmod 600 "$out"
-        say "已导出到 ${out}（含 key / cookie / B 站登录 / 频道配置 / history / 起点水位；不含生成的视频）"
-        cat <<EOT
-   到新机器上：
-     git clone <本仓库> && cd bilingual-sub-generator
-     ./docker-start.sh import ${out}
-     ./docker-start.sh
-   注意：包里有登录凭据，传完就删。旧机器上的服务要在新机器跑通后再停，
-   停之前如果两边都在跑自动搬运会重复投稿——导入时会自动把 ENABLE_AUTOMATION 置 0，确认后再开。
-EOT
-        ;;
-    import)
-        archive="${2:-}"
-        [ -n "$archive" ] && [ -f "$archive" ] || die "用法: ./docker-start.sh import <export 打出来的 .tar.gz>"
-        if userdata_complete && [ "${3:-}" != "--force" ]; then
-            die "userdata/ 里已经有 key 和 cookie 了，不覆盖。确定要覆盖就加 --force：./docker-start.sh import $archive --force"
-        fi
-        tar xzf "$archive"
-        rm -f userdata/.setup-done
-        # 防止新旧两台机器同时投稿：先关掉，用户确认旧机停了再 ./docker-start.sh setup 打开
-        if grep -qE '^ENABLE_AUTOMATION=1' userdata/.env 2>/dev/null; then
-            sed -i.bak -e 's/^ENABLE_AUTOMATION=1/ENABLE_AUTOMATION=0/' userdata/.env && rm -f userdata/.env.bak
-            warn "已把 ENABLE_AUTOMATION 置 0：等旧机器的服务停掉后，运行 ./docker-start.sh setup 到第 4 步再打开"
-        fi
-        chmod 644 userdata/*.json 2>/dev/null || true
-        chmod 600 userdata/.env userdata/cookies.txt userdata/cookies.json 2>/dev/null || true
-        say "已导入。接下来运行 ./docker-start.sh —— 它会先体检（代理地址可能要按这台机器改），通过就直接启动"
         ;;
     *)
         sed -n '2,15p' "$0"

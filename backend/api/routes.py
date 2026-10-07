@@ -9,6 +9,8 @@ from config.settings import DOWNLOADS_DIR, AUTOMATION_OUTPUT_DIR, ENV_FILE
 from config.keys import key_manager, read_google_api_keys
 from utils.thumbnail_helper import ensure_thumbnail
 from utils.library import collect_library, resolve_library_video, delete_library_video
+from utils.automation_store import is_job_id
+from api.automation_routes import job_status_payload
 
 api_router = APIRouter()
 # 裸机 = 仓库根 .env；Docker = userdata/.env（AUTOMATION_STATE_DIR），见 config/settings.py
@@ -53,7 +55,13 @@ async def submit_new_subtitle_generation_task(request: SubtitleRequest, backgrou
     return {"task_id": new_job_id}
 
 @api_router.get("/status/{task_id}")
-async def check_task_execution_status(task_id: str):
+def check_task_execution_status(task_id: str):
+    # 「生成并投稿」的任务由 mover 执行，状态在共享的 jobs/ 目录里；字段和 Web 任务对齐，前端用同一套轮询
+    if is_job_id(task_id):
+        payload = job_status_payload(task_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="Requested task not found in active records")
+        return payload
     job_details = global_job_manager.retrieve_job_status(task_id)
     if not job_details: 
         raise HTTPException(status_code=404, detail="Requested task not found in active records")

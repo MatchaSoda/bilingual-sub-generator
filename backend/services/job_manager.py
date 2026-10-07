@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from config.settings import BASE_DIR, VENV_PYTHON, HTTP_PROXY, HTTPS_PROXY
 from utils.thumbnail_helper import ensure_thumbnail
+from utils.pipeline_stages import detect_stage
 
 class JobExecutionManager:
     def __init__(self):
@@ -13,7 +14,9 @@ class JobExecutionManager:
     def initialize_job_record(self):
         job_identifier = str(uuid.uuid4())
         self.active_jobs[job_identifier] = {
+            "kind": "generate",
             "status": "pending",
+            "stage": "queued",
             "logs": [],
             "result": None,
             "start_time": time.time()
@@ -75,7 +78,11 @@ class JobExecutionManager:
             for log_line in iter(subprocess_instance.stdout.readline, ""):
                 stripped_line = log_line.strip()
                 self.active_jobs[job_id]["logs"].append(stripped_line)
-                
+                # 和自动搬运同一张阶段表（utils/pipeline_stages.py），任务面板据此画分阶段进度
+                stage = detect_stage(stripped_line)
+                if stage:
+                    self.active_jobs[job_id]["stage"] = stage
+
                 if "Final video:" in stripped_line: 
                     self.active_jobs[job_id]["result"] = stripped_line.split("Final video:")[1].strip()
             
@@ -83,6 +90,7 @@ class JobExecutionManager:
             
             if subprocess_instance.returncode == 0:
                 self.active_jobs[job_id]["status"] = "completed"
+                self.active_jobs[job_id]["stage"] = "done"
                 # Trigger thumbnail generation or synchronization
                 video_result_path = self.active_jobs[job_id].get("result")
                 if video_result_path:

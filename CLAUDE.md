@@ -95,7 +95,7 @@ Docker 上没有这个便利：不管改哪里都要重建镜像、重建容器�
 
 1. `.env` → `GOOGLE_API_KEYS`（逗号分隔，`config/keys.py` 轮询使用）
 2. `backend/config/settings.py` → 路径、代理、cookie 位置、默认字幕样式
-3. `automation/config.json` → 频道列表、过滤规则、`processing` 段的流水线参数、`backfill` 段的起点水位（RUNBOOK §4）
+3. `automation/config.json` → 频道列表、过滤规则、`processing` 段的流水线参数、`backfill` 段的起点水位、`cleanup` 段的媒体文件保留天数（RUNBOOK §4）
 
 运行期标记 `automation/state.json`（Docker：`userdata/state.json`）只存首次启动时间，删掉即重置起点。
 

@@ -13,6 +13,22 @@
 新机器上 `GEMINI_PROXY` 已清空，Gemini 只走 `default`（`direct-v4` 在这里 0/6，见下）。
 10-03 那三个失败循环的修复随新镜像一起生效了。
 
+## 2026-10-07（下午）：媒体文件定期清理
+
+每个投稿的视频在本地留约 370 MB（原视频、`.wav`、成品），代码从来不删。最近 5 天 B 站投了 60 条，平均每天约 12 条，
+多的时候一天约 20 条。算下来每天 4–7 GB，Mac mini 剩 120 GB，三四周就会写满。
+
+- `mover.py` 每轮开头调用 `cleanup_old_media`，删 `data/downloads` 和产出目录里超过 `cleanup.keep_days`
+  天的文件。缺省 7 天，0 表示关闭；Web 界面的成品（`data/downloads/*_bilingual.*`）不删。规则见 RUNBOOK §4「定期清理」。
+- 判断新旧用 `max(mtime, ctime)`。实测 yt-dlp 抽音频会让 `.wav` 继承源视频的 mtime（重跑后 mtime 05:45、ctime 05:51）；
+  在 OrbStack 的 bind mount 上把 mtime 改到两年前，ctime 仍是当前时间。yt-dlp 默认 `--no-mtime`，下载文件本身不会被改时间。
+- `config.json.example` 和生产的 `userdata/config.json` 都加了 `"cleanup": {"keep_days": 7}`。
+- 新增 `test_mover_cleanup.py`（10 个），全套 92/92。容器里对真实 bind mount 实测：当下 0 删、改了 mtime 的 `.wav` 留下；
+  假设过了 8 天，删 3 个，Web 成品保留；生产目录当下 0 删。部署后首轮正常。
+
+**待用户决定**：自动搬运的成品不会出现在 Web 界面的媒体库里。`/api/library` 只列 `data/downloads/*_bilingual.mp4`，
+而 mover 的产出在 `userdata/data`。要显示的话，需要让列表、下载、删除接口同时覆盖两个目录。
+
 ## 2026-10-07：生产迁到 Mac mini（Docker + OrbStack）
 
 机器：Apple M6（2 超大核 + 4 性能核 + 6 能效核）/ 16 GB / macOS 27，中国大陆网络，代理是 Clash Verge 7897。

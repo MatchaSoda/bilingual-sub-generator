@@ -129,8 +129,9 @@ scripts/migrate.sh import <那个 .tar.gz>     # 自动判断这台是裸机还�
   镜像内 `uname -m` 为 x86_64，biliup / deno / yt-dlp / ffmpeg / Noto CJK 均可用；真实 x86 服务器上的运行还没测。
 - **转写是纯 CPU。** large-v3-turbo 处理 10 分钟视频约需 5–15 分钟，取决于核数。GPU 版需要换
   CUDA 基础镜像并把 `transcription_engine.py` 的 device 改成 cuda，目前没做。
-- **`data/downloads` 会无限增长。** 中间产物（.asr.json / .translated.json）是缓存，删了会重算。
-  磁盘紧张时删里面的 .mp4 / .wav 即可。
+- **磁盘占用由 mover 定期清理。** `data/downloads` 和 `userdata/data` 里超过 `config.json` 的 `cleanup.keep_days`
+  （缺省 7）天的文件每轮自动删掉，Web 界面的成品保留，规则见 RUNBOOK §4「定期清理」。只用 Web 界面、
+  没开自动搬运时不会清理；这时磁盘紧张，删 `data/downloads` 里的 .mp4 / .wav 即可，缓存删了会重算。
 - **容器以谁的身份运行**由 `PUID`/`PGID` 决定，`docker-start.sh` 按情形自动填，目的是让 `userdata/`、`data/`
   里生成的文件属主是操作这台机器的人：
 

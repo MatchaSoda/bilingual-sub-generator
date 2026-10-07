@@ -18,6 +18,11 @@ DATA_STORAGE_DIRECTORY = BASE_DIR / "data"
 DOWNLOADS_DIR = DATA_STORAGE_DIRECTORY / "downloads"
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
+# 自动搬运的成品目录，和 automation/mover.py 的 OUTPUT_DIR 是同一个：裸机 automation/data，Docker userdata/data。
+# 媒体库把它和 DOWNLOADS_DIR（Web 界面的成品）一起列出来。
+AUTOMATION_OUTPUT_DIR = (Path(_STATE_DIR) if _STATE_DIR else BASE_DIR / "automation") / "data"
+AUTOMATION_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 VENV_PYTHON = BASE_DIR / "venv" / "bin" / "python3"
 if not VENV_PYTHON.exists():
     VENV_PYTHON = BASE_DIR.parent / "venv" / "bin" / "python3"

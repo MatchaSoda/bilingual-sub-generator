@@ -1,14 +1,14 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 import time
 import os
-from datetime import datetime
 from pathlib import Path
 from dotenv import set_key
 from api.schemas import SubtitleRequest
 from services.job_manager import global_job_manager
-from config.settings import DOWNLOADS_DIR, ENV_FILE
+from config.settings import DOWNLOADS_DIR, AUTOMATION_OUTPUT_DIR, ENV_FILE
 from config.keys import key_manager, read_google_api_keys
 from utils.thumbnail_helper import ensure_thumbnail
+from utils.library import collect_library, resolve_library_video, delete_library_video
 
 api_router = APIRouter()
 # 裸机 = 仓库根 .env；Docker = userdata/.env（AUTOMATION_STATE_DIR），见 config/settings.py
@@ -59,69 +59,46 @@ async def check_task_execution_status(task_id: str):
         raise HTTPException(status_code=404, detail="Requested task not found in active records")
     return job_details
 
+# 媒体库的两个来源（utils/library.py）。URL 前缀对应 entry_server.py 里的两个静态目录挂载。
+LIBRARY_SOURCES = {
+    "web": (DOWNLOADS_DIR, "/downloads"),
+    "auto": (AUTOMATION_OUTPUT_DIR, "/outputs"),
+}
+
+
+def _library_source(source):
+    if source not in LIBRARY_SOURCES:
+        raise HTTPException(status_code=400, detail=f"Unknown library source: {source}")
+    return LIBRARY_SOURCES[source]
+
+
 @api_router.get("/library")
 async def list_available_processed_videos():
-    if not DOWNLOADS_DIR.exists(): 
-        return []
-        
-    discovered_video_files = []
-    # Get all matching files and their stats
-    video_files_with_stats = []
-    for video_file in DOWNLOADS_DIR.glob("*_bilingual.mp4"):
-        video_files_with_stats.append((video_file, video_file.stat()))
-    
-    # Sort by modification time descending (newest first)
-    video_files_with_stats.sort(key=lambda x: x[1].st_mtime, reverse=True)
-
-    for video_file, file_statistics in video_files_with_stats:
-        ensure_thumbnail(video_file)
-        thumb_name = video_file.with_suffix(".jpg").name
-        
-        discovered_video_files.append({
-            "name": video_file.name, 
-            "path": f"/downloads/{video_file.name}", 
-            "thumbnail": f"/downloads/{thumb_name}",
-            "size": f"{file_statistics.st_size / (1024*1024):.2f} MB", 
-            "time": datetime.fromtimestamp(file_statistics.st_mtime).strftime('%Y-%m-%d %H:%M')
-        })
-    return discovered_video_files
+    return collect_library(LIBRARY_SOURCES, ensure_thumbnail=ensure_thumbnail)
 
 @api_router.delete("/library")
-async def clear_complete_library():
-    if not DOWNLOADS_DIR.exists(): 
-        return {"status": "cleared", "count": 0}
-        
+async def clear_complete_library(source: str = "web"):
+    # 缺省只清 Web 成品；媒体库界面按当前的来源筛选传 web / auto / all。
+    # 只删成品和它自己的封面、字幕，下载缓存留给 mover 的定期清理（RUNBOOK §4）。
+    directories = list(LIBRARY_SOURCES.values()) if source == "all" else [_library_source(source)]
     deleted_count = 0
     try:
-        # Delete both video, associated .ass and .jpg files
-        for video_file in DOWNLOADS_DIR.glob("*_bilingual.mp4"):
-            video_file.unlink()
-            deleted_count += 1
-            
-        for subtitle_file in DOWNLOADS_DIR.glob("*.ass"):
-            subtitle_file.unlink()
-
-        for thumb_file in DOWNLOADS_DIR.glob("*.jpg"):
-            thumb_file.unlink()
-            
+        for directory, _ in directories:
+            for video_file in list(directory.glob("*_bilingual.mp4")):
+                delete_library_video(video_file)
+                deleted_count += 1
         return {"status": "cleared", "count": deleted_count}
-    except Exception as error:
+    except OSError as error:
         raise HTTPException(status_code=500, detail=f"Failed to clear media library: {str(error)}")
 
 @api_router.delete("/library/{name}")
-async def remove_video_from_library(name: str):
-    target_video_file = DOWNLOADS_DIR / name
-    if not target_video_file.exists():
+async def remove_video_from_library(name: str, source: str = "web"):
+    directory, _ = _library_source(source)
+    target_video_file = resolve_library_video(directory, name)
+    if target_video_file is None:
         raise HTTPException(status_code=404, detail="The specified file does not exist")
-        
     try:
-        target_video_file.unlink()
-        associated_subtitle_file = target_video_file.with_suffix(".ass")
-        if associated_subtitle_file.exists(): 
-            associated_subtitle_file.unlink()
-        associated_thumbnail = target_video_file.with_suffix(".jpg")
-        if associated_thumbnail.exists():
-            associated_thumbnail.unlink()
+        delete_library_video(target_video_file)
         return {"status": "deleted"}
-    except Exception as error:
+    except OSError as error:
         raise HTTPException(status_code=500, detail=f"Failed to delete media assets: {str(error)}")

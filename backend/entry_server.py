@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from api.routes import api_router
-from config.settings import FRONTEND_DIST, DOWNLOADS_DIR
+from config.settings import FRONTEND_DIST, DOWNLOADS_DIR, AUTOMATION_OUTPUT_DIR
 
 web_application_instance = FastAPI()
 
@@ -27,6 +27,8 @@ async def inject_security_and_wasm_headers(http_request, next_handler):
 
 web_application_instance.include_router(api_router, prefix="/api")
 web_application_instance.mount("/api/downloads", StaticFiles(directory=str(DOWNLOADS_DIR)), name="downloads")
+# 自动搬运的成品，媒体库里标「自动搬运」的那些（api/routes.py 的 LIBRARY_SOURCES）
+web_application_instance.mount("/api/outputs", StaticFiles(directory=str(AUTOMATION_OUTPUT_DIR)), name="outputs")
 
 if FRONTEND_DIST.exists():
     web_application_instance.mount("/_next", StaticFiles(directory=str(FRONTEND_DIST / "_next")), name="next_static")

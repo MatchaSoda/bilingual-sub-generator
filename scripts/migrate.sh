@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 迁移用户数据（key、cookie、B 站登录、频道配置、history、起点水位）到另一台机器。
+# 迁移用户数据（key、cookie、B 站登录、频道配置、history、起点水位、投稿记录）到另一台机器。
 # 裸机和 Docker 两种部署通用，四个方向都行：裸机↔裸机、裸机↔Docker、Docker↔Docker。
 #
 #   scripts/migrate.sh export [包名] [--from bare|docker]
@@ -16,8 +16,9 @@ say()  { echo -e "${GREEN}▶ $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $*${NC}"; }
 die()  { echo -e "${RED}✖ $*${NC}" >&2; exit 1; }
 
-# 只迁这几个文件。生成的视频、下载缓存、锁文件、向导完成标记都不带。
-FILES=".env cookies.txt cookies.json config.json history.json state.json"
+# 只迁这几个文件。生成的视频、下载缓存、锁文件、向导完成标记、运行期状态（runtime/、jobs/）都不带。
+# uploads.jsonl 是投稿记录（BV 号 ↔ YouTube ID），Web「自动搬运」页和「已投过稿」的判断都靠它。
+FILES=".env cookies.txt cookies.json config.json history.json state.json uploads.jsonl"
 SECRET_FILES=".env cookies.txt cookies.json"
 
 # 某个文件在某种部署下的路径

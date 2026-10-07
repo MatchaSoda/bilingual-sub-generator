@@ -60,8 +60,14 @@ def fill_docker(repo: Path):
     (ud / "config.json").write_text('{"channels": [1]}')
     (ud / "history.json").write_text(json.dumps(HISTORY))
     (ud / "state.json").write_text('{"first_start_at": "2026-09-19T00:00:00+00:00"}')
+    (ud / "uploads.jsonl").write_text('{"video_id": "a", "bvid": "BV1aaaaaaaaa"}\n')
     (ud / ".setup-done").write_text("x")
     (ud / "data").mkdir()
+    # 运行期状态不迁：心跳、队列、日志到了新机器都没意义
+    (ud / "runtime").mkdir()
+    (ud / "runtime" / "status.json").write_text("{}")
+    (ud / "jobs").mkdir()
+    (ud / "jobs" / "pub-20261007-150000-abcdef.json").write_text("{}")
 
 
 class MigrateTest(unittest.TestCase):
@@ -93,7 +99,9 @@ class MigrateTest(unittest.TestCase):
         run(self.old, "export", str(self.pkg))
         names = self.members()
         self.assertIn("userdata/state.json", names)
+        self.assertIn("userdata/uploads.jsonl", names)
         self.assertNotIn("userdata/.setup-done", names)
+        self.assertFalse(any(n.startswith(("userdata/runtime", "userdata/jobs")) for n in names))
         self.assertFalse(any("data" in n.split("/")[1:2] for n in names if n.count("/")))
 
     def test_bare_to_docker(self):
@@ -116,6 +124,7 @@ class MigrateTest(unittest.TestCase):
         run(self.new, "import", str(self.pkg), "--to", "bare")
         self.assertEqual(json.loads((self.new / "automation" / "history.json").read_text()), HISTORY)
         self.assertTrue((self.new / "automation" / "state.json").is_file())
+        self.assertIn("BV1aaaaaaaaa", (self.new / "automation" / "uploads.jsonl").read_text())
         self.assertTrue((self.new / "cookies.txt").is_file())
         self.assertFalse((self.new / "userdata").exists())
         env = (self.new / ".env").read_text()

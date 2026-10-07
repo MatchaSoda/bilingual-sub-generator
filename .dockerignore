@@ -15,6 +15,9 @@ automation/history.json
 automation/history.lock
 automation/state.json
 automation/cookies.json
+automation/uploads.jsonl
+automation/jobs
+automation/runtime
 automation/*.log*
 automation/*.bak-*
 automation/__pycache__

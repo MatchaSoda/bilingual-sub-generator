@@ -82,6 +82,10 @@ automation/history.json
 automation/history.lock
 automation/state.json
 automation/cookies.json
+# Web「自动搬运」页和 mover 共享的运行期文件（backend/utils/automation_store.py）
+automation/uploads.jsonl
+automation/jobs/
+automation/runtime/
 cookies.txt
 
 # Test artifacts

@@ -7,16 +7,18 @@ load_dotenv(ENV_FILE)
 
 
 def read_google_api_keys():
-    """进程环境优先；环境里是空串时再看 .env 文件。
+    """.env 文件优先；文件里没有（或没有这个文件）再看进程环境。
 
-    Docker 下 compose 会把 userdata/.env 的 GOOGLE_API_KEYS 注入成环境变量，哪怕它是空的；
-    load_dotenv 不覆盖已存在的变量，于是用户事后在 Web 界面或文件里填的 key 只有重建容器才能
-    被看到。这里补一层文件回退，让 restart（不重建）也能读到新值。
+    Web 界面「系统设置」改 key 写的是 .env 文件（Docker：userdata/.env）。mover 容器的环境变量是
+    容器创建时从同一个文件注入的，之后不会再变：如果环境优先，Web 上换了 key，自动搬运和
+    「生成并投稿」用的还是旧 key，要重建容器才生效。文件优先之后两个进程读的是同一个文件，
+    改完下一个视频就用上新 key（每个视频都是新起的 entry_cli 进程）。
     """
-    raw = os.getenv("GOOGLE_API_KEYS", "")
-    if not raw.strip():
-        raw = (dotenv_values(ENV_FILE).get("GOOGLE_API_KEYS") or "") if ENV_FILE.is_file() else ""
-    return raw
+    if ENV_FILE.is_file():
+        raw = dotenv_values(ENV_FILE).get("GOOGLE_API_KEYS") or ""
+        if raw.strip():
+            return raw
+    return os.getenv("GOOGLE_API_KEYS", "")
 
 
 class GoogleApiRotationManager:

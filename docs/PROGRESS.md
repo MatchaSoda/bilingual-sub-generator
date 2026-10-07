@@ -65,12 +65,21 @@
   （`docker.expose_ports_to_lan: true`）。以前在 WSL 上也是 `0.0.0.0`，不是这次引入的，但现在机器在家庭局域网里长期开着。
 - 我在做缓存实验时跑了 `docker builder prune`，把项目的构建缓存也清了，导致下一次 build 重下了 pip 那层（多花约 13 分钟）。已写进 DOCKER.md / CLAUDE.md：别 prune。
 
-### 待办（用户）
+- 投稿后 8 小时（05:55–13:52）复查：16 轮扫描全部正常，1 个处理，跳过 19 个（关键字不匹配 11、排除词 8），拉描述失败 0。
+  按 RUNBOOK §8 第四步把 11 个「关键字不匹配」的简介逐个实测：10 个简介完整、都不含 `#newsevery`。
+  剩下的 `aUVCfAfHSBE` 简介是 `NA`，原因是日テレ删掉了它（`Video unavailable`），重发成 `lgfY7r3MYyM`，后者也不含 `#newsevery`。
+  所以白天产出少是正常的：旧机最近 10 条投稿都在 19:12–21:21 之间，`#newsevery` 的视频主要在晚间节目前后上传。
 
-- 这台 Mac 当服务器的系统设置（需要 sudo，AI 不能代做）：
-  - `sudo pmset -a sleep 0 autorestart 1`：现在 `sleep 1`，Claude / UU 远程一退出机器就会睡，OrbStack 睡眠时会暂停容器。
-  - 关掉「自动安装 macOS 更新」：FileVault 开着又没有自动登录，自动更新重启后会停在解锁界面，服务全停。
-  - 打开「远程登录」（SSH），macOS 26+ 可以开机时 SSH 远程解锁 FileVault。
+### 机器设置（用户已改，10-07 下午复查）
+
+- `pmset`：`sleep 0`、`autorestart 1`。
+- 「自动安装 macOS 更新」已关；用户把「安全响应和系统文件」（`CriticalUpdateInstall` / `ConfigDataInstall`）也一起关了。
+- 远程登录（SSH）已开，sshd 在监听 22 端口。FileVault 仍开着，重启后可以用 SSH 远程解锁。
+  **没实测过**：SSH 解锁后会不会自动进入图形会话、OrbStack 能不能随之起来。
+
+### 待办
+
+- 找个方便的时间重启一次，验证「SSH 解锁 FileVault → 用户会话 → OrbStack → 容器」整条链路。
 - 旧 WSL 机保持 `disable`，新机器稳定跑几天后再决定是否清理。
 
 ## 2026-10-07：迁移脚本支持裸机 / Docker 互迁

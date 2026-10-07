@@ -174,7 +174,8 @@ Co-Authored-By: <实际模型名> <noreply@anthropic.com>
   `~/.docker/cli-plugins/`。OrbStack 随登录启动，容器靠 `restart: unless-stopped` 跟着起来。
 - 网速约 0.5–1 MB/s：首次构建约 37 分钟，模型 1.6 GB 下了 45 分钟（经代理中途断了 3 次，靠续传）。
   **别 `docker builder prune`**，清了缓存下次 build 会重下装依赖那一层。
-- 机器本身：FileVault 开着，重启后要有人解锁（macOS 26+ 可以 SSH 远程解锁），否则 OrbStack 起不来。
+- 机器本身：`sleep 0`、`autorestart 1`，自动安装 macOS 更新已关。FileVault 开着，重启后要有人解锁，否则 OrbStack 起不来；
+  SSH 远程登录已开，可以远程解锁（解锁后整条链路能否自己起来还没实测，见 PROGRESS）。
   用户通过 UU 远程用这台机器，平时也拿来当桌面用。
 
 ### 旧裸机生产机（WSL2，`bili-mover.service`，2026-10-07 已停）

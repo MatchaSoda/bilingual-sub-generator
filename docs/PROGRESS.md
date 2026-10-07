@@ -26,8 +26,31 @@
 - 新增 `test_mover_cleanup.py`（10 个），全套 92/92。容器里对真实 bind mount 实测：当下 0 删、改了 mtime 的 `.wav` 留下；
   假设过了 8 天，删 3 个，Web 成品保留；生产目录当下 0 删。部署后首轮正常。
 
-**待用户决定**：自动搬运的成品不会出现在 Web 界面的媒体库里。`/api/library` 只列 `data/downloads/*_bilingual.mp4`，
-而 mover 的产出在 `userdata/data`。要显示的话，需要让列表、下载、删除接口同时覆盖两个目录。
+## 2026-10-07（下午）：媒体库显示自动搬运的成品，加筛选和排序
+
+用户要求自动搬运的视频也出现在 Web 界面的媒体库里，并能筛选、排序。以前 `/api/library` 只列
+`data/downloads/*_bilingual.mp4`（Web 任务的成品），mover 的产出在 `userdata/data`，界面上看不到。
+
+- 后端：
+  - `backend/utils/library.py` 把两个目录一起列出来，每条带 `source`（`web` / `auto`），以及 `size_bytes`、`mtime` 两个原始数值。
+  - `settings.AUTOMATION_OUTPUT_DIR` 和 mover 的 `OUTPUT_DIR` 是同一个目录，静态挂载在 `/api/outputs`。
+  - `DELETE /api/library/{name}?source=` 按来源删成品和同名的 `.jpg` / `.ass`。文件名必须是该目录下的 `*_bilingual.mp4`，否则 404。
+  - `DELETE /api/library?source=`（缺省 `web`）不再顺带删掉 downloads 里所有 `.ass` / `.jpg`。那些是别的视频的缓存和封面，交给定期清理。
+- 前端 `LibraryPanel`：
+  - 来源筛选「全部 / 手动制作 / 自动搬运」，带数量。
+  - 标题搜索。
+  - 排序：最新、最早、最大、最小、名称。来源和排序存在 localStorage。
+  - 封面左上角显示来源标签。
+  - 「Clear Hub」改为逐个删除当前筛选、搜索后看得到的视频。
+  - 下载按钮加了 `download`。媒体 URL 统一转义 `#` / `?`。
+- 验证：
+  - `test_library.py` 4 个，全套 96/96，`next build` 编译和类型检查通过。
+  - 在内置浏览器里实测：
+    - 列出两条（自动搬运 153 MB、手动 29 MB）。
+    - 「自动搬运」筛选剩 1 条，搜「白银」剩手动那条。
+    - 按「文件最小」排序后顺序反过来；刷新页面后排序还在。
+    - 自动搬运的视频从 `/api/outputs/` 播放：readyState 4，1920x1080，337 秒，Range 请求返回 206。
+  - 删除接口：用名字带 `#` 的临时文件实测，`source=web` 返回 404，`source=auto` 返回 200，视频和封面都删掉了。
 
 ## 2026-10-07：生产迁到 Mac mini（Docker + OrbStack）
 
@@ -69,7 +92,8 @@
   不修的话每轮都会重压一遍再失败（§5.6）。修复是改用 `shutil.move`（`fb4eba5`）。
   用旧镜像 + `--output /app/userdata/data/...` 复现出同样的 EXDEV；新镜像同一条命令 exit 0。82/82。
 - 重建容器后 mover 立刻重试 `lTelR_g9adE`，**05:55 投稿成功**，`BV1WJpN65EEH` 审核中，history 8909 条：
-  - 转写、翻译走缓存，约 8.5 分钟的 1080p 视频压制 73 秒，产出 160 MB。
+  - 转写、翻译走缓存，5 分 37 秒的 1080p 视频压制 73 秒，产出 160 MB。（之前按 .wav 大小估成约 8.5 分钟，是错的；
+    媒体库播放器读出来时长是 337 秒。）
   - 上传 2 分 13 秒（`tx` 线路，国内直连）。
 
 ### 观察到、还没处理的

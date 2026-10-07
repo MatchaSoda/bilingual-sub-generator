@@ -85,9 +85,12 @@
 
 ### 3.4 媒体库 (Library Panel)
 
-- 展示已生成的视频列表。
+- 展示已生成的视频列表，包括 Web 任务的成品（`data/downloads`）和自动搬运的成品（`userdata/data`，裸机 `automation/data`），
+  封面上标「手动制作」或「自动搬运」。后端逻辑在 `backend/utils/library.py`，自动搬运的文件经 `/api/outputs` 提供。
+- 按来源筛选、按标题搜索；按时间、大小、名称排序。来源和排序记在浏览器 localStorage。
 - 支持在线播放生成的双语字幕视频。
-- 提供删除功能，清理存储空间。
+- 提供删除功能，清理存储空间。「Clear Hub」只删当前筛选后看得到的视频。
+  自动搬运的成品还会被 mover 按 `cleanup.keep_days` 定期删除（RUNBOOK §4）。
 
 ### 3.5 系统设置 (Settings Panel)
 

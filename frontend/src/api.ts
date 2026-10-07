@@ -20,10 +20,24 @@ export const taskApi = {
   getStatus: (taskId: string): Promise<AxiosResponse<any>> => api.get(`/status/${taskId}`),
 };
 
+// web = Web 界面做的成品（data/downloads），auto = 自动搬运的成品（userdata/data），见 backend/utils/library.py
+export type LibrarySource = 'web' | 'auto';
+
+export interface LibraryItem {
+  name: string;
+  source: LibrarySource;
+  path: string;
+  thumbnail: string;
+  size: string;
+  size_bytes: number;
+  time: string;
+  mtime: number;
+}
+
 export const libraryApi = {
-  list: (): Promise<AxiosResponse<any[]>> => api.get('/library'),
-  delete: (name: string): Promise<AxiosResponse<any>> => api.delete(`/library/${name}`),
-  clear: (): Promise<AxiosResponse<any>> => api.delete('/library'),
+  list: (): Promise<AxiosResponse<LibraryItem[]>> => api.get('/library'),
+  delete: (name: string, source: LibrarySource): Promise<AxiosResponse<any>> =>
+    api.delete(`/library/${encodeURIComponent(name)}`, { params: { source } }),
   getDownloadUrl: (path: string): string => `${baseURL}${path}`,
 };
 

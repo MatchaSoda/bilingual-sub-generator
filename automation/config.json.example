@@ -30,5 +30,8 @@
     "line": "tx",
     "retries": 3,
     "retry_delay_seconds": 60
+  },
+  "cleanup": {
+    "keep_days": 7
   }
 }

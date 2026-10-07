@@ -36,6 +36,8 @@ YT_COOKIES = Path(os.getenv("YT_COOKIES_FILE") or (BASE_DIR / "cookies.txt"))
 STATE_FILE = STATE_DIR / "state.json"
 
 DEFAULT_LOOKBACK_HOURS = 24
+# 每个投稿的视频在本地留约 370 MB，一天 4–7 GB，不清理三四周就写满磁盘（docs/RUNBOOK.md §4「定期清理」）
+DEFAULT_KEEP_DAYS = 7
 
 
 def load_state():
@@ -98,6 +100,53 @@ def is_before_cutoff(entry, cutoff):
 
 def fmt_ts(ts):
     return time.strftime('%Y-%m-%d %H:%M', time.localtime(ts)) if ts else '?'
+
+
+def resolve_keep_days(config):
+    """config.json 的 cleanup.keep_days：媒体文件保留几天，缺省 7；0 或负数 = 不清理。"""
+    cleanup = config.get('cleanup') or {}
+    try:
+        return float(cleanup.get('keep_days', DEFAULT_KEEP_DAYS))
+    except (TypeError, ValueError):
+        return float(DEFAULT_KEEP_DAYS)
+
+
+def cleanup_old_media(keep_days, now=None, targets=None):
+    """删掉超过 keep_days 天没动过的文件，返回 (删除个数, 释放字节数)。
+
+    targets 是 [(目录, 是否保留 *_bilingual 成品), ...]。缺省两个目录：
+      data/downloads —— 下载缓存和中间产物；保留 Web 界面做的成品（媒体库里显示的就是它们）
+      产出目录（OUTPUT_DIR）—— 搬运的成品，已经投到 B 站，到期一起删
+    只看目录下一层的普通文件，不递归、不碰子目录。
+
+    「没动过」取 mtime 和 ctime 里较新的那个：yt-dlp 抽音频时把 .wav 的 mtime 设成源视频的 mtime，
+    重跑时 .wav 是新写的、mtime 却还是旧的；只看 mtime 可能把正在处理的文件当成旧文件删掉。
+    """
+    if keep_days <= 0:
+        return 0, 0
+    now = time.time() if now is None else now
+    cutoff = now - keep_days * 86400
+    if targets is None:
+        targets = [(DOWNLOADS_DIR, True), (OUTPUT_DIR, False)]
+    removed, freed = 0, 0
+    for directory, keep_outputs in targets:
+        if not directory.is_dir():
+            continue
+        for path in directory.iterdir():
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if keep_outputs and path.stem.endswith('_bilingual'):
+                    continue
+                st = path.stat()
+                if max(st.st_mtime, st.st_ctime) >= cutoff:
+                    continue
+                path.unlink()
+                removed += 1
+                freed += st.st_size
+            except OSError as e:
+                print(f"⚠️ 清理 {path.name} 失败: {e}")
+    return removed, freed
 
 
 def parse_flat_playlist_line(line):
@@ -472,6 +521,12 @@ def main():
         if cutoff is not None:
             print(f"🧭 起点水位: 只处理 {fmt_ts(cutoff)} 之后发布的视频（mode=since_first_start，"
                   f"起点 {fmt_ts(state.get('first_start_at'))} 往前 {config.get('backfill', {}).get('lookback_hours', DEFAULT_LOOKBACK_HOURS)}h）")
+
+        # 定期清理：每轮开头删一次过期的下载缓存和成品，keep_days 改了下一轮生效（docs/RUNBOOK.md §4）
+        keep_days = resolve_keep_days(config)
+        removed, freed = cleanup_old_media(keep_days)
+        if removed:
+            print(f"🧹 已清理 {removed} 个超过 {keep_days:g} 天的文件，释放 {freed / 1e9:.2f} GB")
 
         # 三个反爬 / 限流开关，均可在 config.json 里调整（缺省沿用保守默认值）：
         #   playlist_items                   —— 每轮扫描频道最近多少个视频（窗口越大越能扛停机）

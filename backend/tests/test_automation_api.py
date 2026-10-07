@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from api import automation_routes
 from api.routes import api_router
+from services.bilibili_account import BilibiliAccount
 from utils import automation_store as store
 
 VIDEO_URL = "https://www.youtube.com/watch?v=T3VwdAhbbQg"
@@ -27,9 +28,10 @@ class ApiTestCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.state = Path(self._tmp.name)
         self.paths = store.Paths(self.state)
-        patcher = mock.patch.object(automation_routes, "PATHS", self.paths)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, value in (("PATHS", self.paths), ("account", BilibiliAccount(self.state))):
+            patcher = mock.patch.object(automation_routes, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         app = FastAPI()
         app.include_router(api_router, prefix="/api")
         app.include_router(automation_routes.automation_router, prefix="/api/automation")
@@ -217,6 +219,124 @@ class StatusApiTests(ApiTestCase):
         self.assertEqual(self.client.get("/api/automation/events").json()["events"][0]["video_id"], "a")
         store.append_upload(self.paths, {"video_id": "a", "bvid": "BV1aaaaaaaaa"})
         self.assertEqual(self.client.get("/api/automation/uploads").json()["uploads"][0]["bvid"], "BV1aaaaaaaaa")
+
+
+class AccountApiTests(ApiTestCase):
+    def test_no_login_file(self):
+        data = self.client.get("/api/automation/account?check=false").json()
+        self.assertEqual((data["exists"], data["logged_in"]), (False, False))
+
+    def test_login_file_summary_without_network(self):
+        (self.state / "cookies.json").write_text(json.dumps({
+            "cookie_info": {"cookies": [{"name": "SESSDATA", "value": "s", "expires": 1798000000},
+                                        {"name": "DedeUserID", "value": "42", "expires": 1798000000}]},
+            "token_info": {"mid": 42, "expires_in": 15552000}, "platform": "BiliTV"}))
+        data = self.client.get("/api/automation/account?check=false").json()
+        self.assertTrue(data["logged_in"])
+        self.assertEqual((data["mid"], data["expires_at"], data["platform"]), ("42", 1798000000, "BiliTV"))
+        self.assertNotIn("SESSDATA", json.dumps(data))  # 凭据本身不出接口
+
+    def test_broken_login_file(self):
+        (self.state / "cookies.json").write_text(json.dumps({"cookie_info": {"cookies": []}}))
+        data = self.client.get("/api/automation/account?check=false").json()
+        self.assertFalse(data["logged_in"])
+        self.assertIn("SESSDATA", data["error"])
+
+    def test_unknown_qr_session(self):
+        self.assertEqual(self.client.get("/api/automation/account/qrcode/abc").status_code, 404)
+
+
+class QrLoginTests(unittest.TestCase):
+    """扫码登录：helper 进程换成一个假脚本，按 @@QR / @@LOGIN / @@ERROR 协议输出。
+    只有拿到带 SESSDATA 的登录信息才替换 cookies.json，旧的备份。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.state = Path(self._tmp.name)
+        self.account = BilibiliAccount(self.state)
+        self.addCleanup(self.account.cancel_qr_login)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def fake_helper(self, *lines, sleep=0):
+        script = self.state / "fake_helper.py"
+        body = ["import json, sys, time", "print('biliup 自己的日志，忽略', flush=True)"]
+        for i, line in enumerate(lines):
+            if i == 1 and sleep:
+                body.append(f"time.sleep({sleep})")
+            body.append(f"print({line!r}, flush=True)")
+        script.write_text("\n".join(body) + "\n")
+        return mock.patch("services.bilibili_account.QR_HELPER", script)
+
+    QR_LINE = "@@QR " + json.dumps({"code": 0, "data": {"url": "https://passport.bilibili.com/x/passport-tv-login/h5/qrcode/auth?auth_code=x", "auth_code": "x"}})
+
+    def wait_done(self, session_id):
+        for _ in range(200):
+            session = self.account.qr_status(session_id)
+            if session["state"] != "waiting":
+                return session
+            time.sleep(0.05)
+        self.fail("扫码线程没有结束")
+
+    def test_success_replaces_and_backs_up(self):
+        (self.state / "cookies.json").write_text('{"old": true}')
+        new_login = json.dumps({"cookie_info": {"cookies": [{"name": "SESSDATA", "value": "new"}]},
+                                "token_info": {"mid": 7}})
+        with self.fake_helper(self.QR_LINE, "@@LOGIN " + json.dumps({"info": new_login})):
+            session = self.account.start_qr_login()
+            self.assertIn("auth_code=x", session["url"])
+            done = self.wait_done(session["id"])
+        self.assertEqual(done["state"], "success", done)
+        self.assertEqual(json.loads((self.state / "cookies.json").read_text())["token_info"]["mid"], 7)
+        self.assertEqual((self.state / "cookies.json").stat().st_mode & 0o777, 0o600)
+        self.assertEqual((self.state / done["backup"]).read_text(), '{"old": true}')
+
+    def test_bad_login_result_keeps_the_old_file(self):
+        (self.state / "cookies.json").write_text('{"old": true}')
+        with self.fake_helper(self.QR_LINE, "@@LOGIN " + json.dumps({"info": json.dumps({"something": "else"})})):
+            done = self.wait_done(self.account.start_qr_login()["id"])
+        self.assertEqual(done["state"], "failed")
+        self.assertEqual((self.state / "cookies.json").read_text(), '{"old": true}')
+
+    def test_expired_qr(self):
+        with self.fake_helper(self.QR_LINE, "@@ERROR " + json.dumps({"message": "code 86038: 二维码已失效"})):
+            done = self.wait_done(self.account.start_qr_login()["id"])
+        self.assertEqual(done["state"], "expired")
+        self.assertFalse((self.state / "cookies.json").exists())
+
+    def test_qr_failure_is_raised(self):
+        with self.fake_helper("@@ERROR " + json.dumps({"message": "获取二维码失败: timeout"})):
+            with self.assertRaises(RuntimeError) as ctx:
+                self.account.start_qr_login()
+        self.assertIn("timeout", str(ctx.exception))
+
+    def test_helper_dying_without_a_result(self):
+        with self.fake_helper(self.QR_LINE):
+            done = self.wait_done(self.account.start_qr_login()["id"])
+        self.assertEqual(done["state"], "failed")
+
+    def test_cancel_stops_the_waiting_process(self):
+        login = "@@LOGIN " + json.dumps({"info": json.dumps({"cookie_info": {"cookies": [{"name": "SESSDATA", "value": "v"}]}})})
+        with self.fake_helper(self.QR_LINE, login, sleep=30):
+            session = self.account.start_qr_login()
+            started = time.time()
+            self.assertTrue(self.account.cancel_qr_login(session["id"]))
+            self.assertEqual(self.account.qr_status(session["id"])["state"], "cancelled")
+        self.assertLess(time.time() - started, 5)
+        self.assertFalse((self.state / "cookies.json").exists())
+
+    def test_waiting_does_not_block_other_threads(self):
+        """回归：stream_gears 在 Web 进程里等扫码会攥住 GIL，把整个服务卡死。换成子进程后主线程照常跑。"""
+        with self.fake_helper(self.QR_LINE, "@@ERROR {}", sleep=2):
+            session = self.account.start_qr_login()
+            ticks = 0
+            started = time.time()
+            while time.time() - started < 0.5:
+                ticks += 1
+                time.sleep(0.01)
+            self.assertGreater(ticks, 20)
+            self.account.cancel_qr_login(session["id"])
 
 
 if __name__ == "__main__":

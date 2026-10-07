@@ -13,11 +13,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from config.settings import AUTOMATION_STATE_DIR
+from services.bilibili_account import BilibiliAccount
 from utils import automation_store as store
 
 # 接口都写成普通函数：FastAPI 把它们放进线程池跑，查 B 站登录状态、读一堆任务文件时不会卡住别的请求
 automation_router = APIRouter()
 PATHS = store.Paths(AUTOMATION_STATE_DIR)
+account = BilibiliAccount(AUTOMATION_STATE_DIR)
 
 SKIP_REASON_TEXT = {"keyword": "关键词不匹配", "exclude": "命中排除词", "cutoff": "早于起点", "description_failed": "拉简介失败"}
 
@@ -290,3 +292,33 @@ def retry_job(job_id: str):
         return {"task_id": existing["id"], "job": existing, "duplicate": True}
     job = store.create_job(PATHS, old["url"], old["video_id"], dict(old.get("options") or {}, retry_of=job_id))
     return {"task_id": job["id"], "job": job, "mover_online": store.read_status(PATHS)["online"]}
+
+
+# ---------------------------------------------------------------- B 站账号
+
+
+@automation_router.get("/account")
+def account_status(check: bool = True):
+    return account.status(check=check)
+
+
+@automation_router.post("/account/qrcode")
+def start_qr_login():
+    try:
+        return account.start_qr_login()
+    except Exception as e:  # noqa: BLE001 拿二维码失败要把原因给页面
+        raise HTTPException(status_code=502, detail=f"获取二维码失败: {e}")
+
+
+@automation_router.get("/account/qrcode/{session_id}")
+def qr_login_status(session_id: str):
+    session = account.qr_status(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="二维码已经失效，重新生成一个")
+    return session
+
+
+@automation_router.delete("/account/qrcode/{session_id}")
+def cancel_qr_login(session_id: str):
+    """关掉弹窗时调用：停掉还在等扫码的进程。"""
+    return {"cancelled": account.cancel_qr_login(session_id)}

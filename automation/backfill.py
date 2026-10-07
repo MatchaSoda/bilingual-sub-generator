@@ -2,8 +2,12 @@
 """单个视频补投脚本 —— 给一个 YouTube URL，对这一条视频做和 automation 完全相同的事：
 entry_cli 生成双语视频（下载 → 转写 → 翻译 → 压制）→ biliup 投稿到 B 站，直到投稿成功。
 
-直接复用 mover.py 的 load_config / process_and_upload，因此处理参数（segment/whisper/
+直接复用 mover.py 的 load_config / publish_video，因此处理参数（segment/whisper/
 gemini/furigana/标题翻译…）、B 站分区、标签、投稿流程都与自动搬运一致，不会出现两套逻辑漂移。
+投稿成功同样会写进投稿记录（uploads.jsonl），Web「自动搬运」页能看到。
+
+mover 在跑的时候，更省事的做法是在 Web「制作任务」页选「生成并投稿」：任务进 mover 的队列，
+和自动搬运排队执行，不会两边同时压视频。这个脚本适合 mover 没在跑、或者要在终端里盯着看的时候。
 
 用法:
     ../venv/bin/python3 backfill.py <youtube_url>
@@ -17,47 +21,12 @@ gemini/furigana/标题翻译…）、B 站分区、标签、投稿流程都与�
     用 --no-history 可跳过写入。
 """
 import argparse
-import os
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import mover
-
-
-def fetch_id_and_title(video_url):
-    """拿单个视频的 id 和标题（供文件名 / 日志用）。复用 mover 的 cookies 临时副本逻辑。"""
-    cookies_tmp = mover.make_cookies_copy()
-    try:
-        cmd = [
-            str(mover.YTDLP_PATH), "--skip-download", "--ignore-no-formats-error",
-            "--print", "%(id)s|%(title)s",
-        ]
-        if cookies_tmp:
-            cmd[1:1] = ["--cookies", cookies_tmp]
-        cmd.append(video_url)
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        line = ""
-        for candidate in reversed(result.stdout.splitlines()):
-            if "|" in candidate:
-                line = candidate.strip()
-                break
-        if not line:
-            print(f"❌ 无法获取视频信息: {result.stderr[:300]}")
-            return None, None
-        vid, _, title = line.partition("|")
-        return vid.strip(), title.strip()
-    except Exception as e:
-        print(f"❌ 获取视频信息异常: {e}")
-        return None, None
-    finally:
-        if cookies_tmp:
-            try:
-                os.unlink(cookies_tmp)
-            except OSError:
-                pass
 
 
 def main():
@@ -91,7 +60,7 @@ def main():
 
     processing = config.get("processing", {})
 
-    video_id, video_title = fetch_id_and_title(args.video_url)
+    video_id, video_title = mover.fetch_id_and_title(args.video_url)
     if not video_title:
         print("❌ 拿不到标题，终止。")
         sys.exit(1)
@@ -101,16 +70,17 @@ def main():
     while True:
         attempt += 1
         print(f"\n===== 第 {attempt}/{args.retries + 1} 次尝试 =====")
-        ok = mover.process_and_upload(
+        result = mover.publish_video(
             video_id or "manual",
             args.video_url,
             video_title,
             channel_cfg,
             processing,
             full_config=config,
+            origin="backfill",
         )
-        if ok:
-            print(f"\n✅ 投稿成功: {video_title}")
+        if result["ok"]:
+            print(f"\n✅ 投稿成功: {video_title} {result['bvid'] or ''}")
             if video_id and not args.no_history:
                 try:
                     hist = mover.load_history()

@@ -76,6 +76,10 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
           <SettingsIcon sx={{ fontSize: 40, color: 'secondary.main' }} />
           系统设置
         </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Gemini Key 是 Web 任务和自动搬运共用的，保存后下一个视频就用新 Key。下面的模型和开关只管「仅生成」的任务；
+          自动搬运和「生成并投稿」用「自动搬运 › 处理与投稿」里的预设，那边可以一键导入这里的设置。
+        </Typography>
       </header>
 
       <Grid container spacing={4}>

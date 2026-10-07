@@ -13,8 +13,16 @@ import TypeIcon from '@mui/icons-material/TextFields';
 import ActivityIcon from '@mui/icons-material/FlashOn';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
+import SendIcon from '@mui/icons-material/Send';
+import CheckIcon from '@mui/icons-material/CheckCircleOutline';
+import Button from '@mui/material/Button';
+import Tooltip from '@mui/material/Tooltip';
+import Snackbar from '@mui/material/Snackbar';
 
 import SubtitlesOctopus from 'libass-wasm';
+
+import { automationApi, errorMessage } from '../../src/api';
+import { pickStyle, sameStyle } from '../../src/automation';
 
 interface StyleSliderProps {
   label: string;
@@ -89,6 +97,32 @@ const DesignPanel = ({
   const instanceRef = useRef<any>(null);
   const [engineReady, setEngineReady] = useState(false);
   const [previewBg, setPreviewBg] = useState<'light' | 'dark'>('light');
+  // 自动搬运 / 「生成并投稿」用的字幕样式（config.json 的 processing.style 叠在默认样式上）
+  const [publishStyle, setPublishStyle] = useState<Record<string, number> | null>(null);
+  const [savingStyle, setSavingStyle] = useState(false);
+  const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    automationApi
+      .getConfig()
+      .then((res) => setPublishStyle({ ...res.data.style_defaults, ...(res.data.effective.processing?.style || {}) }))
+      .catch(() => setPublishStyle(null));
+  }, []);
+
+  const styleMatches = !!publishStyle && sameStyle(pickStyle(form), publishStyle);
+
+  const applyToPublishing = async () => {
+    setSavingStyle(true);
+    try {
+      const res = await automationApi.saveStyle(pickStyle(form));
+      setPublishStyle((prev) => ({ ...(prev || {}), ...res.data.style }));
+      setToast('已设为投稿样式：之后的自动搬运和「生成并投稿」都用这套字幕样式');
+    } catch (e) {
+      setToast(`保存失败：${errorMessage(e)}`);
+    } finally {
+      setSavingStyle(false);
+    }
+  };
 
   const assContent = useMemo(() => {
     const f = form;
@@ -233,6 +267,27 @@ Dialogue: 0,0:00:00.00,10:00:00.00,Furi,,0,0,0,,わたし            なまえ  
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Tooltip
+            title={
+              styleMatches
+                ? '自动搬运和「生成并投稿」用的就是现在这套样式'
+                : '把现在这套样式用到自动搬运和「生成并投稿」（「仅生成」一直用这里的样式）'
+            }
+          >
+            <span>
+              <Button
+                size="small"
+                variant={styleMatches ? 'text' : 'outlined'}
+                color="secondary"
+                disabled={styleMatches || savingStyle || !publishStyle}
+                startIcon={styleMatches ? <CheckIcon /> : <SendIcon />}
+                onClick={applyToPublishing}
+                sx={{ px: 2, py: 0.75, fontWeight: 900 }}
+              >
+                {styleMatches ? '与投稿样式一致' : '设为投稿样式'}
+              </Button>
+            </span>
+          </Tooltip>
           <IconButton
             size="small"
             onClick={() =>
@@ -484,6 +539,13 @@ Dialogue: 0,0:00:00.00,10:00:00.00,Furi,,0,0,0,,わたし            なまえ  
           </Paper>
         </Box>
       </Box>
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={4000}
+        onClose={() => setToast('')}
+        message={toast}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Box>
   );
 };

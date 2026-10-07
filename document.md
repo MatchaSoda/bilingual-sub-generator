@@ -63,9 +63,11 @@
 
 ### 3.1 制作任务 (Task Panel)
 
-- 用户输入视频 URL。
-- 配置 ASR 模型大小、翻译目标语言和 AI 修正选项。
-- 快速启动生成流程。
+- 用户输入视频 URL，两种模式（选择记在 localStorage）：
+  - **仅生成字幕视频**：用「系统设置」的模型和「视觉实验室」的样式，后端 `job_manager` 直接跑 `entry_cli.py`，成品进媒体库。
+  - **生成并投稿 B 站**：只收 YouTube 单个视频链接。任务交给自动搬运的 mover 排队执行（见 §4.3），处理参数、样式、
+    投稿模板用「自动搬运 › 处理与投稿」里的预设；分区、标签、B 站标题可以按这一次覆盖。前一个没完也能继续提交。
+- 视频已经投过稿（`uploads.jsonl` 有记录）或在自动搬运的 history 里但不知道是不是被过滤掉的，提交时会先确认一次。
 
 ### 3.2 视觉实验室 (Design Panel)
 
@@ -80,8 +82,11 @@
 
 ### 3.3 实时遥测 (Telemetry Panel)
 
-- 通过轮询后端接口，展示任务执行的原始实时日志。
-- 可视化展示当前处理步骤（下载、转录、翻译等）。
+- 通过轮询 `/api/status/{id}` 展示当前任务的实时日志。Web 任务和投稿任务走同一个接口（投稿任务 id 以 `pub-` 开头，
+  后端从共享的 `jobs/` 目录读）。刷新页面后会接着显示上一个任务（投稿任务在 userdata 里，服务重启也还在）。
+- 分阶段进度：下载 → 转写 → 翻译 → 压制（→ 投稿）。阶段由后端从 `entry_cli` 的输出行推断（`backend/utils/pipeline_stages.py`，
+  Web 任务和 mover 共用一张表），失败时标红停在出错的那一步。
+- 投稿任务额外显示：排在队列第几、mover 正在忙什么、投稿结果和 BV 号链接；排队时可以取消，失败可以重试。
 
 ### 3.4 媒体库 (Library Panel)
 
@@ -94,8 +99,25 @@
 
 ### 3.5 系统设置 (Settings Panel)
 
-- 管理 Google Gemini API Key。
-- 支持多 Key 轮询配置。
+- 管理 Google Gemini API Key（多 Key 逗号分隔轮询）。写进 `.env`（Docker 是 `userdata/.env`），Web 任务和自动搬运共用：
+  `config/keys.py` 先读文件再读环境变量，所以 mover 容器不用重建，下一个视频就用新 Key。
+- 下面的模型和开关只管「仅生成」的任务；投稿用自动搬运页的预设（那边可以一键导入这里的设置）。
+
+### 3.6 自动搬运 (Automation Panel，`app/components/automation/`)
+
+和 mover 进程通过 userdata 下的共享文件协作（§4.3），Web 自己不投稿。六个标签页：
+
+| 标签 | 内容 |
+|---|---|
+| 概览 | mover 在不在线、在干什么（扫描 / 处理哪个视频的哪一步 / 休眠到几点）、上一轮统计、24 小时投稿 / 失败 / 跳过原因；「立即扫描」「暂停 / 恢复自动扫描」；投稿队列（取消、重试、看日志）；B 站账号（登录状态、到期日、扫码登录）；最近动态 |
+| 频道 | 频道列表增删改排序：地址、关键词、排除词、分区、标签 |
+| 扫描规则 | 扫描间隔、每轮看多少个视频、每轮上限、拉简介间隔、补档范围（起点水位）、媒体保留天数 |
+| 处理与投稿 | 处理预设（模型、断句、振假名、纠错、字幕样式）、上传线路和重试、B 站标题 / 简介模板（带预览） |
+| 投稿记录 | `uploads.jsonl`：时间、B 站标题、BV 号、原视频、来源（自动 / Web / 补投脚本） |
+| 日志 | `runtime/mover.log` 的最后 800 行，自动刷新 |
+
+配置页改的是一份草稿，点保存才写 `config.json`（带版本号：向导或手工改过文件就拒绝覆盖，提示重新加载）；有没保存的修改时
+切走页面会确认。视觉实验室的「设为投稿样式」直接把当前样式写进 `processing.style`。
 
 ---
 
@@ -111,21 +133,53 @@
 
 ### 4.2 运行流程
 
-1. **登录 B 站**: 运行相应工具生成 `cookies.json`。
-2. **配置频道**: 复制 `config.json.example` 为 `config.json`，并填入你感兴趣的 YouTube 频道 URL 和过滤关键字。
+1. **登录 B 站**: Web「自动搬运」页扫码登录（或终端里 `biliup login`），生成 `cookies.json`。
+2. **配置频道**: 在「自动搬运 › 频道」里添加（或复制 `config.json.example` 为 `config.json` 手改）。
 3. **启动服务**:
-   - 手动运行: `python mover.py`
-   - 服务运行: 将 `bili-mover.service` 文件复制到 `/etc/systemd/system/` 并启动。
+   - Docker: `userdata/.env` 里 `ENABLE_AUTOMATION=1`，然后 `./docker-start.sh`（起 `mover` 容器）。
+   - 裸机: `python mover.py`，或者把 `bili-mover.service` 复制到 `/etc/systemd/system/` 并启动。
+
+### 4.3 Web 和 mover 怎么协作
+
+两个进程（Docker 里是 `web`、`mover` 两个容器）不互相调用，只读写 STATE_DIR（Docker `userdata/`，裸机 `automation/`）下的文件，
+布局和读写函数都在 `backend/utils/automation_store.py`（只用标准库，mover 直接 import）：
+
+```
+config.json          Web 改（带版本号、原子写、上一版留在 config.json.bak-last），mover 每轮重读
+uploads.jsonl        mover 每次投稿成功追加一行（BV 号、YouTube ID、成品文件名、来源）
+jobs/<id>.json/.log  Web 提交的投稿任务；mover 按提交顺序认领、执行、写结果
+runtime/status.json  mover 每 5 秒写一次心跳和当前状态，Web 据此显示在线 / 离线
+runtime/events.jsonl 跳过、命中、失败、投稿成功、一轮结束、清理，概览页的动态和统计
+runtime/mover.log    mover 输出的副本（带时间戳），日志页
+runtime/wake         「立即扫描」：mover 休眠时每 3 秒看一眼，有就提前开始下一轮
+```
+
+- **只有 mover 投稿。** 「生成并投稿」的任务和频道扫描在同一个进程里串行执行：每轮开头、两个视频之间、休眠期间都会先跑
+  排队的 Web 任务，所以用户最多等一个视频；也不会两边同时压视频、同时投同一个视频（扫描时跳过有 Web 任务的视频）。
+- 写 `jobs/`、`uploads.jsonl`、`config.json` 都在 `runtime/*.lock` 的 `flock` 里做；两个容器共用一个内核，flock 跨容器有效。
+- 投稿任务成功后由 mover 写 history（同一个进程，内存集合就是权威，RUNBOOK §3 的语义不变）；每轮开头 mover 还会把磁盘上的
+  history 并进内存，吸收 backfill.py 这类外部写入。
+- mover 重启时还在跑的任务标成失败、不自动重跑：中断可能发生在投稿成功之后、记账之前（RUNBOOK §9）。
+- 「暂停自动扫描」是 `config.json` 的 `paused`：不扫频道，但 Web 投稿照常处理。部署层面的开关仍是 `.env` 的 `ENABLE_AUTOMATION`。
 
 ---
 
 ## 5. 数据流图
+
+仅生成：
 
 1. **前端** 发送 `SubtitleRequest` 到 **后端 API**。
 2. **后端 `job_manager`** 启动 `entry_cli.py` 子进程。
 3. `media_downloader` 下载音视频 -> `transcription_engine` 生成 JSON -> `segment_optimizer` 优化分段 -> `subtitle_translator` 请求 Gemini 翻译 -> `subtitle_generator` 生成 ASS -> `video_processor` 压制 MP4。
 4. **前端 `TelemetryPanel`** 轮询获取实时日志与进度。
 5. 完成后，视频显示在 **前端 `LibraryPanel`**。
+
+生成并投稿：
+
+1. **前端** `POST /api/automation/jobs` → 后端写 `jobs/pub-….json`（状态 queued）。
+2. **mover** 认领任务 → 拿标题 → `publish_video`：同样起 `entry_cli.py`，参数来自 `config.json` 的 `processing`，成品写到 userdata/data
+   → `biliup upload` → 写 `uploads.jsonl`、history、任务结果（BV 号）。
+3. **前端 `TelemetryPanel`** 同样轮询 `/api/status/pub-…`，日志来自 `jobs/pub-….log`。
 
 ---
 

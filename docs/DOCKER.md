@@ -33,10 +33,13 @@ Windows 在 **WSL 终端或 Git Bash** 里运行脚本。macOS 上要长期开�
 userdata/            ← 你的全部数据，git 忽略，备份这个目录就够
   .env               Gemini key / 代理 / 开关       （模板 docker/env.example；Web 界面填的 key 也写在这）
   cookies.txt        YouTube cookie
-  cookies.json       B 站登录信息
-  config.json        搬运频道与规则                  （模板 automation/config.json.example）
+  cookies.json       B 站登录信息                    （Web「自动搬运」页扫码登录写的也是它，旧的备份成 .bak-<时间>）
+  config.json        搬运频道与规则                  （模板 automation/config.json.example；Web「自动搬运」页可改，上一版留在 config.json.bak-last）
   history.json       已处理视频 id
   state.json         起点水位（首次启动时间，backfill.mode=since_first_start 时才有）
+  uploads.jsonl      投稿记录：BV 号、YouTube ID、成品文件名、来源（自动 / Web / 补投）
+  jobs/              Web「生成并投稿」的任务和日志，只留最近 200 个
+  runtime/           mover 的心跳、最近动态、日志副本、锁（运行期文件，删了也只是丢掉最近动态）
   data/              生成好的双语视频 + 封面
 data/downloads/      下载与中间产物缓存（会很大，可定期清）
 docker volume whisper-models   Whisper 模型缓存
@@ -49,6 +52,9 @@ docker volume whisper-models   Whisper 模型缓存
 
 ## 3. 常用命令
 
+日常操作多数在 Web（http://localhost:8501）的「自动搬运」页完成：看状态和日志、改频道 / 规则 / 处理参数、暂停、立即扫描、
+B 站扫码登录、「生成并投稿」单个链接。下表是命令行的部分。
+
 | 想做什么 | 命令 |
 |---|---|
 | 启动 / 重启 | `./docker-start.sh` |
@@ -60,12 +66,13 @@ docker volume whisper-models   Whisper 模型缓存
 | yt-dlp 过期 / 更新代码 | `./docker-start.sh update` |
 | 进容器排查 | `./docker-start.sh shell` |
 | 迁移：导出 / 导入用户数据 | `./docker-start.sh export`、`./docker-start.sh import <包>`（§3.5，裸机用 `scripts/migrate.sh`） |
-| 补投单个视频 | `docker compose run --rm setup bash -c "cd automation && ../venv/bin/python3 backfill.py <url>"` |
+| 补投单个视频 | Web「制作任务」选「生成并投稿 B 站」；mover 没在跑时 `docker compose run --rm setup bash -c "cd automation && ../venv/bin/python3 backfill.py <url>"` |
 
 手改了 `userdata/.env` 后重新执行 `./docker-start.sh`（它跑的是 `docker compose up -d`，配置变了会自动
 重建容器）。**`docker compose restart` 不行**——env_file 只在容器创建时读，restart 不重建，容器里还是旧值（09-19 实测）。
 Gemini key 也可以在 Web 界面「系统设置」里填，后端会写到 `userdata/.env` 并立即对新任务生效，不用重启。
-手改 `userdata/config.json` 不用重启，下一轮扫描生效（同裸机）。
+手改 `userdata/config.json` 不用重启，下一轮扫描生效（同裸机）。Web 上改配置也一样；页面打开之后有人手改过文件，Web 保存会被拒绝
+（不会把手改的内容覆盖掉），刷新后再改。
 
 ## 3.5 迁移到另一台机器（裸机 / Docker 互通）
 
@@ -81,13 +88,13 @@ scripts/migrate.sh import <那个 .tar.gz>     # 自动判断这台是裸机还�
 # Docker：./docker-start.sh   裸机：venv/bin/python3 scripts/setup_wizard.py --check
 ```
 
-带走的就这 6 个文件，包里统一按 `userdata/` 的结构放（所以老版本 `docker-start.sh export` 打的包也能导）：
+带走的就这 7 个文件，包里统一按 `userdata/` 的结构放（所以老版本 `docker-start.sh export` 打的包也能导）：
 
 | 文件 | 裸机位置 | Docker 位置 |
 |---|---|---|
 | `.env`（key、代理） | 仓库根 | `userdata/` |
 | `cookies.txt`（YouTube） | 仓库根 | `userdata/` |
-| `cookies.json`（B 站登录）、`config.json`、`history.json`、`state.json` | `automation/` | `userdata/` |
+| `cookies.json`（B 站登录）、`config.json`、`history.json`、`state.json`、`uploads.jsonl`（投稿记录） | `automation/` | `userdata/` |
 
 不带：生成的视频（`automation/data`、`userdata/data`）、`data/downloads` 缓存、Whisper 模型（新机器重新下载）。
 

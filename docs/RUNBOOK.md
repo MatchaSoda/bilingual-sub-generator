@@ -8,6 +8,10 @@
 
 > Docker 部署的对应操作（重启、日志、改配置）见 [`DOCKER.md`](./DOCKER.md) §3；本节针对裸机 systemd 部署。
 
+**日常操作先看 Web 的「自动搬运」页**（2026-10-07 起）：服务在不在线、正在处理哪个视频的哪一步、下一轮几点、上一轮的判定分布、
+最近的投稿和失败、mover 日志，都在那里；改频道 / 规则 / 处理参数 / 上传线路、暂停扫描、立即扫一轮、B 站扫码登录也在那里。
+Web 和 mover 怎么协作见 [`document.md`](../document.md) §4.3。下面的命令是 Web 打不开、或者要查更早的日志时用的。
+
 | 项 | 值 |
 |---|---|
 | systemd 单元 | `bili-mover.service`（`/etc/systemd/system/`，仓库内 `automation/bili-mover.service` 只是模板） |
@@ -32,7 +36,9 @@ journalctl -u bili-mover -f | grep -E "should process|投稿成功|投稿失败|
 | 改动 | 需要重启？ |
 |---|---|
 | `automation/config.json` 的 `upload` 段 | ❌ **投稿时实时读盘**，改完立刻生效 |
-| `automation/config.json` 其余部分 | ❌ 每轮循环开头读一次，**改动要下一轮才生效**（一轮最长 30 分钟） |
+| `automation/config.json` 其余部分 | ❌ 每轮循环开头读一次，**改动要下一轮才生效**（一轮最长 30 分钟）；想马上生效点 Web 上的「立即扫描」 |
+| Web 上提交的投稿任务 | ❌ mover 休眠时每 3 秒看一次队列，处理视频时在两个视频之间插空 |
+| Gemini key（Web「系统设置」或 `.env`） | ❌ 每个视频新起的 `entry_cli` 先读 `.env` 文件，下一个视频就用新 key |
 | `backend/**`（含 `media_downloader.py`） | ❌ 每个视频新起 `entry_cli.py` 子进程 |
 | `cookies.txt` | ❌ 每次下载重新复制 |
 | `automation/mover.py` | ✅ 代码常驻内存 |
@@ -53,9 +59,12 @@ Docker 部署下这三样都在 `userdata/`：`userdata/cookies.txt`、`userdata
 
 ```bash
 ./docker-start.sh check                                   # 验 cookie / key / 代理，替代下面手工 grep 的大部分
-docker compose run --rm setup bash -c "cd /app/automation && ../venv/bin/biliup login"   # B 站扫码
+docker compose run --rm setup bash -c "cd /app/userdata && ../venv/bin/biliup login"     # B 站扫码（终端版）
 ./docker-start.sh shell                                   # 进容器，之后 §6 的探测脚本按原样跑（venv 在 /app/venv）
 ```
+
+B 站扫码那条以前写的是 `cd /app/automation`：biliup 把 `cookies.json` 写在工作目录，`/app/automation` 不是挂载出来的目录，
+容器一退出登录信息就没了。必须在 `/app/userdata` 里跑（向导也是这么做的）。
 
 ### 更新 YouTube cookies
 
@@ -92,9 +101,17 @@ awk '!/^#/ && NF>=7 && $1 ~ /youtube\.com/ {print $6}' cookies.txt | sort -u
 
 ### 更新 B 站会话
 
+**首选 Web：「自动搬运 › 概览 › B 站投稿账号 › 重新扫码登录」**，用 B 站手机 App 扫码确认。登录成功才替换 `cookies.json`，
+旧文件备份成 `cookies.json.bak-<时间>`；返回的数据里没有 SESSDATA 就不覆盖。这张卡片还会显示登录的用户名和到期日
+（SESSDATA 有效期约 180 天，剩不到 14 天变黄），并用 nav 接口确认会话没被 B 站作废。
+
+终端版（Web 打不开时）：
+
 ```bash
-cd automation && ../venv/bin/biliup login    # 交互式，生成 cookies.json
+cd automation && ../venv/bin/biliup login    # 交互式，生成 cookies.json（Docker 见上面，要在 /app/userdata 里跑）
 ```
+
+扫码在 Web 进程里是另起一个子进程做的，不要改回直接调 stream_gears，原因见 §5.11。
 
 ---
 
@@ -102,7 +119,11 @@ cd automation && ../venv/bin/biliup login    # 交互式，生成 cookies.json
 
 `automation/history.json` 是一个已处理视频 id 的 **JSON 数组**（当前约 6500 条）。一条 id 进了 history 就永远不会再被处理。
 
-写入的地方：命中排除词、关键字不匹配、**投稿成功**。注意 —— **处理失败不写入**，所以失败的视频下一轮会自动重试，不需要人工干预。
+写入的地方：命中排除词、关键字不匹配、**投稿成功**（自动扫描的和 Web 提交的投稿任务都是 mover 进程写，Web 进程只读）。
+注意 —— **处理失败不写入**，所以失败的视频下一轮会自动重试，不需要人工干预。
+
+mover 每轮开头会把磁盘上的 history 并进内存集合（吸收 `backfill.py` 这类外部进程写的 id，避免重投）。这只会让内存变多，
+不改变下面「内存集合会覆盖磁盘」的结论。
 
 ### 致命陷阱：内存集合会覆盖磁盘
 
@@ -512,6 +533,18 @@ cat /proc/<pid>/net/tcp | awk '$4=="01"'             # ESTABLISHED 却零流量 
 以后在 `backend/` / `automation/` 里移动文件，只要源和目标可能分属 `data/` 与 `userdata/`，就用 `shutil.move`，
 同一目录内的 `os.replace`（history / state 的原子写）不受影响。
 
+### 5.11 Web 页面整个卡死（扫码登录时）
+
+症状：点「扫码登录」后二维码一直转圈，接着整个 Web 界面所有接口都没响应。10-07 实测时是重启容器恢复的；
+按下面的机制，等二维码过期、轮询返回之后也会自己恢复（没实测）。
+
+机制：biliup 自带的 `stream_gears.login_by_qrcode` 轮询扫码结果期间**一直攥着 Python 的 GIL**。放在 Web 进程的任何线程里调，
+同进程的其他线程（包括 uvicorn 的事件循环）全部停住，直到二维码过期（约 3 分钟）。10-07 实测：后台线程等扫码时，
+主线程 30 秒里一次都没跑到。单独跑 `get_qrcode` 很快、看不出问题，这个坑只在「等扫码」时出现。
+
+现在的做法：`services/bilibili_account.py` 另起一个子进程（`services/bilibili_qr_login.py`）做扫码，按行把二维码和结果传回来；
+关弹窗或重新生成二维码会杀掉旧进程。以后在 Web 进程里用 stream_gears 的任何函数，都要先确认它会不会长时间持有 GIL。
+
 ---
 
 ## 6. 验证脚本
@@ -555,6 +588,11 @@ for i in 1 2 3 4 5; do ../venv/bin/python3 /tmp/probe.py <video_id>; done
 
 ## 7. 补投单个视频
 
+mover 在跑时最省事的是 Web「制作任务」选「生成并投稿 B 站」，粘贴链接即可：任务进 mover 的队列，和自动搬运用同一套处理参数
+和投稿设置，结果（BV 号）在遥测页和「自动搬运 › 投稿队列」里看。任务的语义见 §9。
+
+mover 没在跑、或者想在终端里盯着看时，用 `backfill.py`：
+
 ```bash
 cd automation
 ../venv/bin/python3 backfill.py "<youtube_url>"                # 复用 config.json 第 0 个频道的分区/标签
@@ -570,6 +608,10 @@ cd automation
 
 这个症状出现过三次，**三次都不是服务挂了**（两次过滤规则、一次确实没有匹配的视频）。
 所以顺序是先量化判定分布，再怀疑故障——反过来会浪费大量时间在健康的组件上。
+
+**快速版**：Web「自动搬运 › 概览」直接给出第一、二步的答案——服务在不在线、上一轮列出 / 新视频 / 命中 / 投稿的数量、
+24 小时的跳过原因分布（关键词不匹配、命中排除词、早于起点、拉简介失败）。「最近动态」切到「全部」能看到每条跳过的视频和命中的
+排除词。数据来自 `runtime/events.jsonl`，只覆盖 10-07 这个功能上线之后；更早的还是按下面翻日志。
 
 ### 第一步：服务活着吗
 
@@ -603,10 +645,10 @@ grep -oE "命中排除词 '[^']*'" /tmp/mv.log | sort | uniq -c | sort -rn
 
 ### 第三步：静默陷阱 —— 描述拉取失败会被当成「不匹配」
 
-`mover.py` 里 `fetch_video_description()` 失败时返回空字符串，调用方拿到 `""` 后
-`keyword in ""` 为 False，于是走「关键字不匹配」分支，**把视频永久写入 history**。
+`mover.py` 里 `fetch_video_description()` 失败时，调用方按「关键字不匹配」处理，**把视频永久写入 history**。
 也就是说 YouTube 风控导致的拉描述失败，表现和「这个视频确实不匹配」完全一样，
-只在日志里多一行 `⚠️ 拉取描述失败`。
+只在日志里多一行 `⚠️ 拉取描述失败`。（10-07 起它在动态里单独记成「拉简介失败」，日志是 `⏭️ 跳过 (拉取描述失败，按不匹配处理)`；
+写 history 的行为没变。）
 
 所以 `拉取描述失败` 的计数必须单独看。如果它非零，那些视频是被误丢的，
 要按 §3 的姿势从 history 里捞回来，并检查 cookies（§2）。
@@ -622,4 +664,35 @@ grep -oE "命中排除词 '[^']*'" /tmp/mv.log | sort | uniq -c | sort -rn
 ```
 
 有输出 = 描述确实命中 keyword，那它是被排除词拦下的；无输出 = 本来就不该处理。
+
+---
+
+## 9. Web 投稿任务（`jobs/`）
+
+「生成并投稿」提交的任务存在 STATE_DIR 的 `jobs/<id>.json`（id 形如 `pub-20261007-155041-8e7110`），日志在同名 `.log`。
+**只有 mover 执行它们**，Web 只负责创建、取消、重试。状态：
+
+| 状态 | 含义 | 能做什么 |
+|---|---|---|
+| queued | 排队，等 mover 空出来 | 取消 |
+| running | mover 正在处理（`stage` 是下载 / 转写 / 翻译 / 压制 / 投稿） | 等；不能取消（流水线跑到一半不好收拾） |
+| done | 投稿成功，`result.bvid` 是 BV 号（拿不到时为空，去创作中心看） | — |
+| failed | `error` 是原因（biliup 报错只留最后几行，完整的在任务日志里），`failed_stage` 是哪一步 | 重试（新建一个任务） |
+| cancelled | 排队时被取消 | 重新提交 |
+
+几个要知道的行为：
+
+- **排队顺序**：每轮开头、两个视频之间、休眠期间（每 3 秒）都会先跑排队的任务，所以最多等 mover 处理完手上那一个视频。
+  Web 任务不占 `max_uploads_per_cycle` 的名额。
+- **mover 重启时正在跑的任务会被标成失败，不会自动重跑**：中断可能发生在 B 站已经收下稿件、还没来得及记账的时候，重跑就是重复投稿。
+  日志里是 `⚠️ 上次退出时有 N 个 Web 投稿任务没跑完`。处理：去 B 站创作中心看有没有这条稿件，没有再点重试。
+  所以**部署（重建容器）前先看「自动搬运」页没有进行中的任务**，和「等 mover 休眠」是同一个要求。
+- **去重**：同一个视频已经在队列里，再提交会直接返回那个任务；扫描到 Web 任务正在处理的视频会跳过（不写 history）。
+  投过稿（`uploads.jsonl` 有记录）或在 history 里又没有跳过记录的视频，提交时要确认一次。history 里有「跳过」动态的视频
+  说明是被过滤掉的，直接放行。
+- **处理参数**来自 `config.json` 的 `processing`（含 `style`），每个任务开始时现读；分区 / 标签默认用第一个频道的，提交时可以覆盖。
+- 只保留最近 200 个任务（含日志），排队中和进行中的不删。
+
+任务一直 queued 不动：先看概览页 mover 是否在线（离线时页面有提示：`ENABLE_AUTOMATION=1` + `./docker-start.sh`，裸机启动
+`bili-mover`）；在线还不动，看日志页 mover 是不是卡在某个视频上（比如 §5.9 的模型加载）。
 

@@ -4,10 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目定位
 
-日语视频 → 中日双语硬字幕视频的全自动流水线。两种用法共用同一套后端：
+日语视频 → 中日双语硬字幕视频的全自动流水线。一个 Web 界面管两种用法，共用同一套后端：
 
-- **交互式**：Web UI（Next.js + FastAPI），手工提交单个 URL，可实时调字幕样式。
+- **交互式**：Web UI（Next.js + FastAPI），手工提交单个 URL，可实时调字幕样式。「制作任务」页选「生成并投稿 B 站」时，
+  链接交给 mover 排队，生成后直接投稿。
 - **无人值守**：`automation/mover.py` 作为常驻服务，定期扫描 YouTube 频道 → 生成双语视频 → 自动投稿 B 站。
+  Web 的「自动搬运」页是它的控制台：状态、配置、投稿队列、投稿记录、日志、B 站扫码登录。
   现在的生产是 Mac mini 上 Docker 的 `mover` 容器（2026-10-07 起）；之前是 WSL2 裸机上的 systemd `bili-mover.service`。
 
 **这是一个长期在线运行的生产服务**，不是纯代码库。动手前先读 `docs/RUNBOOK.md`。生产是 Docker，代码 COPY 在镜像里：
@@ -34,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 所有 Python 命令都用仓库内的 venv，**不要用系统 python3**（依赖只装在 venv 里）：
 
 ```bash
-# 测试（51 个用例，unittest，约 1 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
+# 测试（198 个用例，unittest，约 3 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
 bash run_tests.sh
 # Docker 机上的等价写法（测试需要一个占位 key）
 docker compose run --rm -T -e GOOGLE_API_KEYS=x setup bash -c 'cd /app/backend && /app/venv/bin/python3 -m unittest discover -s tests -p "test_*.py"'
@@ -52,6 +54,18 @@ cd backend && ../venv/bin/python3 entry_cli.py "<youtube_url>" --segment-mode ru
 # 前端
 cd frontend && npm run build && npm run lint
 ```
+
+生产机 Mac mini 没装 node。前端要构建 / 加依赖时，借 Dockerfile 前端阶段的前几条指令建一个只到 `npm ci` 的镜像
+（指令一字不差，命中构建缓存，十几秒），再把 `frontend/` 挂进去跑（产物在 `frontend/out`，类型检查在 build 这一步）：
+
+```bash
+sed -n '/^FROM node/,/^RUN npm ci/p' Dockerfile > <临时文件>
+docker build -f <临时文件> -t bsg-frontend-deps .
+docker run --rm -v "$PWD/frontend:/frontend" -v bsg-node-modules:/frontend/node_modules bsg-frontend-deps npm run build
+docker run --rm -v "$PWD/frontend:/frontend" -v bsg-node-modules:/frontend/node_modules bsg-frontend-deps npm install <包>   # 加依赖，会改 package.json / lock
+```
+
+命名卷 `bsg-node-modules` 第一次挂载时从镜像里复制 node_modules；lock 变了要删掉这个卷重建镜像。
 
 Docker 部署：`./docker-start.sh`（首次进向导；改了 `userdata/.env` 后也用它，它会重建容器，`docker compose restart` 不会重读 env）、
 `./docker-start.sh check`（体检配置）、`./docker-start.sh model`（确保 Whisper 模型在，启动时自动做）、`./docker-start.sh shell`（进容器）。任何要在容器里跑的一次性命令用
@@ -76,12 +90,23 @@ entry_cli.py  ──►  media_downloader (yt-dlp)
 
 `entry_cli.py` 是**唯一**的流水线入口。三个调用方都通过 `subprocess` 起它，而不是 import：
 
-- `backend/services/job_manager.py` ← Web UI 提交任务
-- `automation/mover.py` ← 自动搬运
-- `automation/backfill.py` ← 单条补投
+- `backend/services/job_manager.py` ← Web UI「仅生成」任务
+- `automation/mover.py` ← 自动搬运，以及 Web「生成并投稿」的任务（`publish_video`）
+- `automation/backfill.py` ← 单条补投（也走 `publish_video`）
 
 **这个设计有个重要后果**：裸机上改 `backend/` 下的代码**不需要重启** `bili-mover.service`，因为每个视频都新起一个 `entry_cli.py` 进程。只有改 `automation/mover.py` 本身才需要重启。
 Docker 上没有这个便利：不管改哪里都要重建镜像、重建容器（见上面「项目定位」）。
+
+### Web 和 mover 只通过文件协作，投稿只有 mover 做
+
+Web 进程不投稿、不写 history。「自动搬运」页读写的配置、投稿任务、心跳、动态、投稿记录都是 STATE_DIR（Docker `userdata/`，
+裸机 `automation/`）下的文件，布局和读写函数集中在 `backend/utils/automation_store.py`（只用标准库，mover 直接 import；
+别在里面 import `config.settings`，那会在 mover 里建目录、读 .env）。细节和取舍见 `document.md` §4.3、RUNBOOK §9。
+
+- 写共享文件要么原子替换（`write_json_atomic`），要么在 `runtime/*.lock` 的 flock 里追加；Docker 的两个容器共用内核，flock 跨容器有效。
+- 新的运行期文件放 `runtime/`，长期要留的（像 `uploads.jsonl`）放 STATE_DIR 根目录并加进 `scripts/migrate.sh` 的 FILES；
+  **不能放进 `data/`**，那里会被定期清理整个扫掉（RUNBOOK §4）。
+- 在 Web 进程里调 biliup 的 stream_gears 要先确认它会不会长时间持有 GIL，扫码登录就是因此改成子进程的（RUNBOOK §5.11）。
 
 ### 中间产物有缓存，会跳过重算
 
@@ -95,7 +120,9 @@ Docker 上没有这个便利：不管改哪里都要重建镜像、重建容器�
 
 1. `.env` → `GOOGLE_API_KEYS`（逗号分隔，`config/keys.py` 轮询使用）
 2. `backend/config/settings.py` → 路径、代理、cookie 位置、默认字幕样式
-3. `automation/config.json` → 频道列表、过滤规则、`processing` 段的流水线参数、`backfill` 段的起点水位、`cleanup` 段的媒体文件保留天数（RUNBOOK §4）
+3. `automation/config.json` → 频道列表、过滤规则、`processing` 段的流水线参数（含 `style` 字幕样式）、`upload` 段的上传线路和
+   标题 / 简介模板、`backfill` 段的起点水位、`cleanup` 段的媒体文件保留天数（RUNBOOK §4）、`paused` 暂停扫描。
+   Web「自动搬运」页能改全部这些；所有「没写时的缺省值」集中在 `automation_store.DEFAULTS`，mover 和界面看到的是同一份。
 
 运行期标记 `automation/state.json`（Docker：`userdata/state.json`）只存首次启动时间，删掉即重置起点。
 

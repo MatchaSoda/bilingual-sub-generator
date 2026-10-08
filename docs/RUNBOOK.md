@@ -305,6 +305,30 @@ Dockerfile 把 `venv/bin` 加进了 PATH。裸机上 `venv/bin/yt-dlp -v` 同样
 而且插件失败后不缓存浏览器实例，**每个 PO Token 请求都新开一个 Chrome**，几十个 Chromium 能把宿主机 load 打到 40。
 1.1.2 修了并锁定 `nodriver==0.50.3`。看到这个报错先查插件版本，不要先怀疑 Xvfb / DISPLAY。
 
+**第五条（2026-10-08，Mac 重启后踩到）**：同一个容器**重启**（不是重建）到第二次，Xvfb 就起不来了，之后每条视频都是 360p。
+10-07 23:28 那次 Mac 重启，OrbStack 两分钟内把容器起了两次（23:26 那次 Clash 还没起来，23:28 又一次）。之后 17 小时投出去的
+6 条全是 640x360，服务本身一切正常。
+
+- 日志：每次取 PO Token 都是 `[pot] Error fetching PO Token from "wpc" provider: PoTokenProviderError('failed to start browser:
+  ... Failed to connect to browser ... One of the causes could be when you are running as root ...')`，然后是
+  `mweb client https formats require a GVS PO Token which was not provided` 和 `Downloading 1 format(s): 18`。
+  **报错里说的 root / `no_sandbox` 是误导**：进程本来就是 app 用户，补上 X 显示后同样的配置立刻恢复 1080p。真正的原因是没有显示，Chrome 起不来。
+- 机制：重启不清容器的可写层，`/tmp/.X99-lock` 和 `/tmp/.X11-unix/X99` 都还在。Xvfb 只在锁里的 PID 已经不存在时才把它当旧锁删掉；
+  容器每次启动 PID 都从 1 数起、启动顺序固定，新 Xvfb 正好拿到锁里那个 PID（也就是它自己），于是报
+  `Server is already active for display 99` 退出。第一次重启通常没事（首次启动多跑了 useradd / chown 等命令，PID 不一样），
+  从第二次起必现，而且一直坏到容器重建。旧 entrypoint 等的是 socket 文件，旧 socket 也还在，所以连等待都直接「成功」，没有任何输出。
+- 现在 entrypoint 起 Xvfb 之前先删掉旧锁和旧 socket（此时容器里还没有 Xvfb，残留的一定是旧的）。Xvfb 真起不来时，
+  `docker compose logs` 里会有一行 `⚠️  Xvfb 没起来`。
+- 判定：`docker compose exec mover ps -eo pid,stat,comm | grep Xvfb` 没有输出或状态是 `Z`；`docker compose exec mover cat /tmp/xvfb.log`
+  里是 `already active`；`grep -c "Downloading 1 format(s): 18" userdata/runtime/mover.log` 大于 0。
+- 不重建容器的救急办法（web 和 mover 各做一次，不影响正在处理的视频；下一次下载就恢复）：
+
+  ```bash
+  docker compose exec -T -u app mover bash -c 'rm -f /tmp/.X99-lock /tmp/.X11-unix/X99; setsid nohup Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -ac >/tmp/xvfb.log 2>&1 </dev/null &'
+  ```
+
+**验证重启不能只看服务在线**：要么等一次真实下载、看日志里的 format，要么跑 §6 的探针（期望 `399(1080) + 251(audio)`）。
+
 ### 5.4 B 站投稿失败 `client error (Connect)`
 
 **根因：B 站部分上传节点的 TLS 证书过期了。** 不是网络抖动，也不是代理问题。

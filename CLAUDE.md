@@ -202,8 +202,10 @@ Co-Authored-By: <实际模型名> <noreply@anthropic.com>
 - 网速约 0.5–1 MB/s：首次构建约 37 分钟，模型 1.6 GB 下了 45 分钟（经代理中途断了 3 次，靠续传）。
   **别 `docker builder prune`**，清了缓存下次 build 会重下装依赖那一层。
 - 机器本身：`sleep 0`、`autorestart 1`，自动安装 macOS 更新已关，SSH 已开。FileVault 已关、自动登录 `soda`：
-  重启后「自动登录 → Clash Verge + OrbStack → 容器」整条链路无人值守自己起来（10-07 23:28 实测通过，见 PROGRESS）。
+  重启后「自动登录 → Clash Verge + OrbStack → 容器」整条链路无人值守自己起来（10-07 23:28 实测，见 PROGRESS）。
   例外：装 macOS 更新后的那次启动可能要手动登录一次。
+  那次重启里 OrbStack 把容器起了两次，Xvfb 被旧锁挡住，之后的投稿全是 360p，10-08 修了（RUNBOOK §5.3 第五条）。
+  **验证重启或部署不能只看服务在线**，要看一次真实下载的格式，或者跑 RUNBOOK §6 的探针。
   用户通过 UU 远程用这台机器，平时也拿来当桌面用。
 
 ### 旧裸机生产机（WSL2，`bili-mover.service`，2026-10-07 已停）

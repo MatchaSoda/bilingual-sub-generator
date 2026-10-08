@@ -626,6 +626,27 @@ cd automation
 
 它直接 import `mover.py` 的 `load_config` / `process_and_upload`，所以处理参数和自动搬运完全一致，不会出现两套逻辑漂移。写 history 时用的是同一个带文件锁的 `save_history`，与常驻服务并发安全。
 
+### 换源：已经投出去的稿件换成新成品
+
+投出去的视频本身有问题（比如 §5.3 那种静默掉到 360p），用 `scripts/replace_bili_video.py` 把稿件的分P换成重新生成的成品。
+BV 号、标题、简介、标签、封面、分区、播放、点赞、投币、收藏、评论都保留。分P 的 cid 会变，挂在旧 cid 上的弹幕会丢，换之前看一眼弹幕数。
+**不要删稿重投**：删稿不能恢复，这些数据全丢。biliup 没有换源命令；脚本照它 `append` 的做法改稿件，只是把分P换掉而不是追加。
+
+1. 用当时的参数重新生成成品。在 `runtime/mover.log` 里找这条视频的 `执行命令:` 那一行，原样再跑一次，只把 `--output`
+   换成一个临时目录（别覆盖 `userdata/data` 里的原成品）。转写、翻译有缓存，几分钟就好；YouTube 上标题改过的话缓存对不上，会重新转写、翻译。
+2. 查现在分P的 filename：`docker compose exec -T -w /app/userdata mover /app/venv/bin/biliup show <BV>`，输出里的 `videos[0].filename`。
+3. 先 `--dry-run`，没问题再去掉它正式跑：
+
+   ```bash
+   docker compose exec -T -u app -e HOME=/tmp mover /app/venv/bin/python3 /app/scripts/replace_bili_video.py \
+       <BV> /app/data/<临时目录>/<成品>.mp4 --expect-filename <filename> --dry-run
+   ```
+
+提交后稿件依次是「审核中」「转码中」，最后回到「开放浏览」，这期间公开页面照常播旧版本。
+脚本会等 B 站读出新文件的时长（转码一开始就有），再和本地比：biliup 的 Python 上传器某个分块连续失败时会悄悄跳过，
+文件缺块时长就对不上，那就重新换一次。转码和审核要不要等、等多久，看 `biliup show` 或公开页面。
+`--expect-filename` 不对、或者稿件不止一个分P，脚本什么都不动；对已经换好的稿件重跑一遍也会因此被拒绝。
+
 ---
 
 ## 8. 诊断「产出为零 / 最近没更新」

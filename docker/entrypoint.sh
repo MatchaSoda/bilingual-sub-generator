@@ -46,12 +46,19 @@ fi
 # ---------- 普通阶段（root 或已降权到 PUID） ----------
 # -ac 关掉 X 的访问控制：容器里只有我们自己，而降权后的进程要连得上它
 if [ -n "${DISPLAY:-}" ] && ! pgrep -x Xvfb >/dev/null 2>&1; then
+    # 容器重启（不是重建）后 /tmp 里还有上一次的锁和 socket。此刻没有 Xvfb，它们一定是旧的，
+    # 但 Xvfb 自己认不出来：锁里的 PID 常常正好是新 Xvfb 自己的（RUNBOOK §5.3 第五条）
+    rm -f "/tmp/.X${DISPLAY#:}-lock" "/tmp/.X11-unix/X${DISPLAY#:}" || true
     Xvfb "${DISPLAY}" -screen 0 1280x800x24 -nolisten tcp -ac >/tmp/xvfb.log 2>&1 &
-    # 给 X server 一点启动时间；起不来也不阻塞（只影响 PO Token → 画质）
+    # 给 X server 一点启动时间；起不来也不阻塞（只影响 PO Token → 画质），但要在容器日志里说出来
     for _ in 1 2 3 4 5 6 7 8 9 10; do
         if [ -e "/tmp/.X11-unix/X${DISPLAY#:}" ]; then break; fi
         sleep 0.3
     done
+    if [ ! -e "/tmp/.X11-unix/X${DISPLAY#:}" ]; then
+        echo "⚠️  Xvfb 没起来：拿不到 PO Token，YouTube 下载会静默退回 360p（RUNBOOK §5.3）" >&2
+        cat /tmp/xvfb.log >&2 || true
+    fi
 fi
 
 case "${1:-web}" in

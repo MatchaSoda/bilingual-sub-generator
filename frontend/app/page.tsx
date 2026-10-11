@@ -35,12 +35,16 @@ import { describeMover } from './components/automation/StatusCard';
 const ACTIVE_STATUSES = ['pending', 'queued', 'processing'];
 
 
+// 存在 localStorage 里的表单版本。v2：「AI 原文纠错」默认开（10-11 起是翻译前单独的一步，RUNBOOK §5.12）。
+// 旧版存下的 fix_source: false 是当时的默认值、不是用户选的，升到 v2 时开一次；之后用户再关就按存下的来。
+const FORM_VERSION = 2;
+
 const DEFAULT_FORM = {
   url: '',
   model: 'large-v3-turbo',
   translation_model: 'gemini-3-flash-preview',
   enable_furigana: true,
-  fix_source: false,
+  fix_source: true,
   segment_mode: 'rule',
   target_lang: 'zh-CN',
   font_size_main: 90,
@@ -89,8 +93,11 @@ export default function Home() {
 
     const savedForm = localStorage.getItem('matcha_config');
     if (savedForm) {
-      setForm({ ...DEFAULT_FORM, ...JSON.parse(savedForm), url: '' });
+      const saved = JSON.parse(savedForm);
+      if (Number(localStorage.getItem('matcha_config_version') || 1) < FORM_VERSION) saved.fix_source = true;
+      setForm({ ...DEFAULT_FORM, ...saved, url: '' });
     }
+    localStorage.setItem('matcha_config_version', String(FORM_VERSION));
     const savedMode = localStorage.getItem('task-mode');
     if (savedMode === 'publish' || savedMode === 'generate') setTaskMode(savedMode);
   }, [fetchTask]);

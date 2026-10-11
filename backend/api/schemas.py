@@ -7,7 +7,7 @@ class SubtitleRequest(BaseModel):
     gemini_model: str = Field("gemini-3.1-flash-lite", alias="translation_model")
     target_language_code: str = Field("zh-CN", alias="target_lang")
     is_furigana_enabled: bool = Field(True, alias="enable_furigana")
-    should_fix_source_text: bool = Field(False, alias="fix_source")
+    should_fix_source_text: bool = Field(True, alias="fix_source")
     segment_mode: str = Field("rule", alias="segment_mode")
     
     font_size_main: int = 90

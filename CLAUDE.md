@@ -24,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `docs/RUNBOOK.md` | 运维手册：服务操作、凭据、故障处置、**踩过的坑** | 碰 automation / 下载 / 投稿时 |
 | `docs/PROGRESS.md` | 当前状态、进行中的工作、已知问题 | 每次开工，改完后更新 |
 | `docs/DOCKER.md` | Docker 部署：目录约定、向导、限制 | 碰 Dockerfile / compose / setup_wizard 时 |
-| `document.md` | 架构与前端技术细节（libass-wasm 预览等） | 需要深入某模块时 |
+| `document.md` | 架构与前端技术细节（视觉实验室的成片渲染预览等） | 需要深入某模块时 |
 | `README.md` | 面向用户的安装与快速开始 | 很少 |
 | `TODO.md` | 产品功能待办（非工程问题） | 规划功能时 |
 
@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 所有 Python 命令都用仓库内的 venv，**不要用系统 python3**（依赖只装在 venv 里）：
 
 ```bash
-# 测试（251 个用例，unittest，约 3 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
+# 测试（276 个用例，unittest，约 3 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
 bash run_tests.sh
 # Docker 机上的等价写法（测试需要一个占位 key）
 docker compose run --rm -T -e GOOGLE_API_KEYS=x setup bash -c 'cd /app/backend && /app/venv/bin/python3 -m unittest discover -s tests -p "test_*.py"'
@@ -108,6 +108,14 @@ Web 进程不投稿、不写 history。「自动搬运」页读写的配置、�
 - 新的运行期文件放 `runtime/`，长期要留的（像 `uploads.jsonl`）放 STATE_DIR 根目录并加进 `scripts/migrate.sh` 的 FILES；
   **不能放进 `data/`**，那里会被定期清理整个扫掉（RUNBOOK §4）。
 - 在 Web 进程里调 biliup 的 stream_gears 要先确认它会不会长时间持有 GIL，扫码登录就是因此改成子进程的（RUNBOOK §5.11）。
+
+### 字幕样式：预览就是成片
+
+视觉实验室的预览图由服务器渲染（`services/subtitle_preview.py`），和压制共用 ASS 生成器、`video_processor.subtitles_filter`
+和镜像里的字体，所以预览 = 成片（只差 x264 压缩）。字体表在 `utils/subtitle_fonts.py`（日文、中文两组，都是 Debian 包，装在
+Dockerfile 的字体层），样式字段在 `automation_store.STYLE_*`：Web 表单、`processing.style`、entry_cli 参数用同一套键。
+改了这条链上的任何东西（生成器、滤镜、字体、ffmpeg 版本、预览的解码）跑 `scripts/check_subtitle_preview.py`，
+踩过的坑（字号换算、颜色矩阵、PNG 伽马）在 RUNBOOK §5.13。
 
 ### 中间产物有缓存，会跳过重算
 

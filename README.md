@@ -9,7 +9,7 @@
 - 🎙️ **精准转录**: 基于 `faster-whisper` 的高效语音识别。
 - 🤖 **智能翻译**: 使用 Google Gemini AI 翻译；可选在翻译前对照视频标题、简介纠正语音识别的同音错字。
 - 🏮 **假名标注**: 自动为日语汉字添加振假名（Furigana），助力语言学习。
-- 🎨 **视觉实验室**: 前端实时预览并自定义字幕样式（字体、颜色、边框、阴影、位置）。
+- 🎨 **视觉实验室**: 自定义字幕样式（日文、中文分开选字体和颜色，边框、阴影、位置）；预览由服务器用压制成片的同一套代码渲染，所见即成片。
 - 📺 **全自动压制**: 集成 FFmpeg，一键生成硬压制双语视频。
 - 🛰️ **自动化搬运**: 定期扫描 YouTube 频道并自动同步处理结果至 Bilibili。Web「自动搬运」页管理频道、过滤规则、处理参数、
   投稿队列和记录，B 站账号直接扫码登录。
@@ -34,7 +34,8 @@
 | Python 3.10+、Node.js 18+ | 后端 / 前端构建 | 起不来 |
 | FFmpeg | 压制 | 起不来 |
 | Chrome 或 Chromium | yt-dlp 取 PO Token（`yt-dlp-getpot-wpc` 会拉起一个真实浏览器） | 能跑，但 YouTube 只给 360p |
-| Noto Sans CJK 字体（Debian/Ubuntu：`fonts-noto-cjk`） | 字幕样式写死了这个字体 | ffmpeg 静默换字体，出现方块 |
+| Noto Sans CJK 字体（Debian/Ubuntu：`fonts-noto-cjk`） | 字幕的缺省字体 | 任务开工前就报错 |
+| 视觉实验室可选的字体（Debian/Ubuntu：`fonts-lxgw-wenkai fonts-klee fonts-morisawa-bizud-gothic fonts-motoya-l-maruberi`） | 换字幕字体 | 下拉框里选不了这几款 |
 | 无桌面的 Linux 服务器：Xvfb | 上面那个浏览器不是 headless 的，需要一个显示 | 拿不到 PO Token，同上 360p |
 
 JS 运行时（yt-dlp 解 YouTube 挑战用的 deno）随 `pip install` 一起装，不用单独装。

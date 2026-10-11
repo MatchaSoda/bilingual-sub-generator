@@ -127,7 +127,8 @@ scripts/migrate.sh import <那个 .tar.gz>     # 自动判断这台是裸机还�
 - **YouTube cookie 不是可选项。** 生产用的 `mweb` 客户端没有登录 cookie 时，YouTube 直接返回
   `Sign in to confirm you're not a bot`——日本直连和经代理都一样（09-19 实测）。所以向导第 3 步的
   cookie 必须给，否则 Web 界面能开但提交任务必失败。
-- **镜像约 3 GB。** Python 依赖（ctranslate2 / onnxruntime）、Chromium、Noto CJK 字体各占一大块。
+- **镜像约 3.5 GB。** Python 依赖（ctranslate2 / onnxruntime）、Chromium、字幕字体各占一大块。字体里 Noto CJK 随系统依赖
+  那层装，视觉实验室可选的几款（霞鹜文楷、クレー One 等，约 260 MB）在 pip 之后单独一层，改字体不会让装依赖的层重跑。
   Chromium 是 yt-dlp 取 PO Token 必需的（RUNBOOK §5.3），去掉它画质会掉到 360p。
 - **x86_64 和 arm64 都可以原生跑。** 早先以为 `biliup` 没有 arm64 wheel，实际 PyPI 上 1.1.29 就有
   `manylinux_2_28_aarch64`。2026-09-19 在 Apple Silicon（M 系列，Docker Desktop）上原生构建通过，

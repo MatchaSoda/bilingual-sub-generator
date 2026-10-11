@@ -634,9 +634,55 @@ docker compose run --rm -T setup bash -c '/app/venv/bin/python3 /app/scripts/rep
 读音对得上、意思不对的拦不住（金を → 菌を、禁断 → 近隣，lite 回放里出现过）。模型对近期的事知道得少
 （字幕原话是「旧マルハニチロ ウミオス」，也就是改名后的公司名，lite 想把它改成「水産」），所以标题和简介比模型的知识优先。
 
+### 5.13 字幕样式：视觉实验室的预览和成片对不上
+
+**现在的做法（10-11 起）**：预览图不在浏览器里画，由服务器用压制成片的同一套代码出图（`services/subtitle_preview.py`）：
+同一个 ASS 生成器、同一个 ffmpeg `subtitles` 滤镜、同一个镜像里的同一批字体，画在 1920x1080 的 yuv420p 画面上，再照浏览器
+放成片的方式转回 RGB。改了字幕渲染相关的任何东西（生成器、滤镜、ffmpeg / libass 版本、字体包、预览的解码），都要跑
+§6 的 `scripts/check_subtitle_preview.py`。
+
+字体分两组：日文原文（振假名跟着它）和中文译文，可选的在 `backend/utils/subtitle_fonts.py`，全是 Debian 包里的开源字体：
+日文 源ノ角ゴシック / 源ノ明朝 / BIZ UDゴシック / モトヤLマルベリ / クレー One，中文 思源黑体 / 思源宋体 / 霞鹜文楷。
+挑的时候拿 54 条缓存视频的字幕查过缺字：得意黑缺「埼」「栃」（日本新闻天天出现），クレー One 缺五百多个常用简体字，
+所以前者没收、后者只给日文用；收进来的日文字体假名和汉字都是 1em 等宽，振假名的排法（按 1em 算位置）才对得上。
+
+以前（libass-wasm 在浏览器里画）对不上的原因，以后换方案时别再踩：
+- 预览自己拼 ASS：字体写的是 `Arial`（libass 回退成别的字体），振假名是手写的一行，和生成器排出来的不一样。
+- 只给浏览器加载了思源黑体的常规体，没有粗体文件：日文默认字重 700，预览是算法加粗的假粗体，成片是真粗体。
+- wasm 里的 libass、HarfBuzz（5.3.1）和镜像里的（libass 0.17.1、HarfBuzz 6.0.0）不是一个版本。
+
+这几处是**静默**的，出问题时不报错，只是颜色或大小不对：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 换字体后同一个字号大了 45%（BIZ UDゴシック、モトヤLマルベリ） | libass 的字号按 (usWinAscent + usWinDescent) 换算，不是字面大小；这两个字体比例 1.0，思源黑体 1.448 | 生成 ASS 时字号乘 `win_ratio / 1.448`（`subtitle_fonts.size_scale`），同一个字号在哪个字体上字面都一样大；思源黑体系数 1，旧样式不变 |
+| 成片里的颜色和设定的差 5~15 级（`#FFFF00` 显示成 255,240,0） | ffmpeg 5.1 的 `subtitles` 滤镜不管视频标的矩阵，一律按 BT.601 把字幕颜色换成 YUV；YouTube 源和成片都标 BT.709，播放器按 709 解。ASS 头里写 `YCbCr Matrix: TV.709` 5.1 也不认（10-11 实测） | 生成 ASS 时按源视频的矩阵反算颜色（`subtitle_generator.ass_color`）。中间色补偿后差 ≤1；纯黄、纯红超出范围只能补一点（纯黄 240 → 241），所以以前的中文黄字基本不变 |
+| 预览比成片暗 2~6 级 | swscale 把 yuv420p 转 RGB 时只写 `in_range=tv` 不会把 limited range 扩开（灰 128 解成 126） | 预览的解码写全 `in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int`（`subtitle_preview.display_filter`） |
+| 预览的中间调比成片亮（灰 126 显示成 137） | 帧上带着 BT.709 的传递特性标记，ffmpeg 的 PNG 编码器据此写 `gAMA 1/1.961`，浏览器按它调亮度；浏览器放视频时不做这一步 | 编码前 `setparams` 标成 sRGB，PNG 带 `sRGB` 块 |
+| 选了一个字体，成片却是别的字体 | 字体没装时 libass 不报错，悄悄换成 fontconfig 找到的别的字体 | `entry_cli` 开工前用 fc-list 查，没装就 `❌ Subtitle font is not installed`、退出码 2，不下载；预览接口返回 422；`./docker-start.sh check` 列出没装的字体 |
+
+颜色那两条是 10-11 在 Chromium 里用色块逐个比出来的：修好之后，预览 PNG 和浏览器放成片显示的颜色一个不差，都等于设定值
+（纯黄除外）。只在 Chromium 里比过；别的播放器（Safari、手机 App）怎么处理 BT.709 的伽马可能不一样，那是播放器之间的差别，
+预览管不了。
+
+**加一个字体**：Dockerfile 字体那一层加 Debian 包；`subtitle_fonts.FONTS` 加一行，`family` 用 `fc-list : family` 里的英文名，
+`win_ratio` 是 OS/2 表的 (usWinAscent + usWinDescent) / unitsPerEm。镜像里跑单测（`test_subtitle_fonts` 会对着字体文件核对
+`win_ratio`、确认装了），再跑 §6 的核对脚本。先拿缓存字幕查缺字，日文字体还要确认假名、汉字是全角等宽的（P 系列是比例宽度，
+比如 BIZ UDPゴシック，振假名会对歪）。
+
 ---
 
 ## 6. 验证脚本
+
+视觉实验室的预览和成片是不是一样（§5.13）。改了字幕生成器、压制滤镜、字体、ffmpeg / libass 版本之后跑：
+
+```bash
+docker compose run --rm -T setup bash -c 'cd /app && venv/bin/python3 scripts/check_subtitle_preview.py --video'
+```
+
+几组字体 / 颜色 × 深色、浅色、最近下载的视频画面三种背景。每组比三样：无损压一遍的成片和预览要一个像素都不差（渲染相同）；
+按 BT.709 公式从成片的 YUV 算出来的颜色和预览在平坦区域差 ≤2（解码相同）；生产参数的有损成片只差 x264 的压缩误差。
+10-11 的结果：12 组渲染全部 0 差，解码最大差 0.5，有损成片 PSNR 44~53 dB。最后一行 `✅ 预览和成片一致`，不过时退出码 1。
 
 Gemini 两条出口的当前成功率：
 

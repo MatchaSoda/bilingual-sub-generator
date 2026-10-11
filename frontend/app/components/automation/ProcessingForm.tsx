@@ -78,21 +78,29 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
   const effectiveStyle = { ...meta.style_defaults, ...style };
   const webMatches = sameStyle(webStyle, effectiveStyle);
 
-  // 把「系统设置」和「视觉实验室」里正在用的参数整套搬过来（只改草稿，保存才生效）
-  const importFromWeb = () =>
-    onChange((d) => ({
-      ...d,
-      processing: {
-        ...d.processing,
-        whisper_model: meta.options.whisper_models.includes(webForm.model) ? webForm.model : d.processing.whisper_model,
-        gemini_model: webForm.translation_model || d.processing.gemini_model,
-        segment_mode: webForm.segment_mode || d.processing.segment_mode,
-        enable_furigana: !!webForm.enable_furigana,
-        fix_source_text: !!webForm.fix_source,
-        correction_model: webForm.correction_model || d.processing.correction_model,
-        style: webStyle,
-      },
-    }));
+  // 把「系统设置」和「视觉实验室」里正在用的参数整套搬过来（只改草稿，保存才生效）。
+  // 搬运的模型常常是特意选的（比如为了准确用 large-v3，网页默认是 turbo），所以样式以外有改动时先列出来确认
+  const importFromWeb = () => {
+    const imported = {
+      whisper_model: meta.options.whisper_models.includes(webForm.model) ? webForm.model : processing.whisper_model,
+      gemini_model: webForm.translation_model || processing.gemini_model,
+      segment_mode: webForm.segment_mode || processing.segment_mode,
+      enable_furigana: !!webForm.enable_furigana,
+      fix_source_text: !!webForm.fix_source,
+      correction_model: webForm.correction_model || processing.correction_model,
+    };
+    const fieldLabels: Record<keyof typeof imported, string> = {
+      whisper_model: '语音识别模型', gemini_model: '翻译模型', segment_mode: '断句', enable_furigana: '日语假名注音',
+      fix_source_text: 'AI 原文纠错', correction_model: '纠错模型',
+    };
+    const shown = (value: unknown) => (typeof value === 'boolean' ? (value ? '开' : '关') : String(value ?? '缺省'));
+    const changes = (Object.keys(imported) as (keyof typeof imported)[])
+      .filter((key) => imported[key] !== processing[key])
+      .map((key) => `${fieldLabels[key]}：${shown(processing[key])} → ${shown(imported[key])}`);
+    if (changes.length && !confirm(`除了字幕样式，这些处理参数也会换成网页的（保存后生效）：\n\n${changes.join('\n')}\n\n`
+      + '只想换字幕样式的话，用下面的「导入视觉实验室的样式」。继续导入？')) return;
+    onChange((d) => ({ ...d, processing: { ...d.processing, ...imported, style: webStyle } }));
+  };
 
   const titlePreview = renderTemplate(upload.title_template).slice(0, 80);
 

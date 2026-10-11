@@ -174,6 +174,16 @@ class CliCommandTests(unittest.TestCase):
             "--output", "/out/x_bilingual.mp4", "--enable-furigana", "--translate-title",
         ])
 
+    def test_correction_model_goes_with_proofreading(self):
+        cmd = mover.build_cli_command("https://y", Path("/o.mp4"), {"fix_source_text": True})
+        self.assertEqual(cmd[cmd.index("--correction-model") + 1], store.DEFAULTS["processing"]["correction_model"])
+        cmd = mover.build_cli_command("https://y", Path("/o.mp4"),
+                                      {"fix_source_text": True, "correction_model": "gemini-3.1-pro-preview"})
+        self.assertEqual(cmd[cmd.index("--correction-model") + 1], "gemini-3.1-pro-preview")
+        cmd = mover.build_cli_command("https://y", Path("/o.mp4"),
+                                      {"fix_source_text": False, "correction_model": "gemini-3.1-pro-preview"})
+        self.assertNotIn("--correction-model", cmd)
+
     def test_style_becomes_entry_cli_flags(self):
         cmd = mover.build_cli_command("https://y", Path("/o.mp4"), {
             "fix_source_text": True, "style": {"font_size_main": 96.0, "sub_bottom": 90, "bogus": 1}})
@@ -195,6 +205,10 @@ class DefaultsTests(unittest.TestCase):
         self.assertEqual(mover.DEFAULT_KEEP_DAYS, store.DEFAULTS["cleanup"]["keep_days"])
         self.assertEqual(mover.DEFAULT_LOOKBACK_HOURS, store.DEFAULTS["backfill"]["lookback_hours"])
         self.assertEqual(mover.resolve_keep_days({}), store.DEFAULTS["cleanup"]["keep_days"])
+
+    def test_correction_model_default_is_the_engines(self):
+        from engines.source_corrector import CORRECTION_MODEL
+        self.assertEqual(store.DEFAULTS["processing"]["correction_model"], CORRECTION_MODEL)
 
     def test_empty_processing_equals_effective_defaults(self):
         effective = store.effective_config({})["processing"]

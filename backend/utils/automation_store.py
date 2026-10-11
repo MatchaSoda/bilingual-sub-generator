@@ -166,6 +166,8 @@ DEFAULTS = {
         "enable_furigana": True,
         "translate_title": True,
         "fix_source_text": False,
+        # 和 engines/source_corrector.CORRECTION_MODEL 一致（测试会对）；这里只用标准库，不能 import 它
+        "correction_model": "gemini-3.5-flash",
         "style": {},
     },
     "upload": {
@@ -199,7 +201,8 @@ STYLE_FIELDS = {
 STYLE_DEFAULTS = {key: spec[3] for key, spec in STYLE_FIELDS.items()}
 
 WHISPER_MODELS = ["large-v3-turbo", "large-v3", "medium", "small", "base", "tiny"]
-GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-2.5-flash"]
+GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-3.1-pro-preview",
+                 "gemini-2.5-flash"]
 SEGMENT_MODES = ["rule", "llm"]
 BACKFILL_MODES = ["all", "since_first_start"]
 # biliup upload --line 的可选值（biliup 1.1.29 --help）
@@ -403,10 +406,11 @@ def normalize_config(raw):
         errors.append({"path": "processing.whisper_model", "message": "不认识的模型"})
     if "segment_mode" in processing and processing["segment_mode"] not in SEGMENT_MODES:
         errors.append({"path": "processing.segment_mode", "message": "只能是 rule 或 llm"})
-    if "gemini_model" in processing:
-        value = _as_text(processing["gemini_model"], errors, "processing.gemini_model", required=True)
-        if value is not None:
-            config["processing"]["gemini_model"] = value
+    for key in ("gemini_model", "correction_model"):
+        if key in processing:
+            value = _as_text(processing[key], errors, f"processing.{key}", required=True)
+            if value is not None:
+                config["processing"][key] = value
     if "translation_batch_size" in processing:
         value = _as_number(processing["translation_batch_size"], int, errors,
                            "processing.translation_batch_size", 10, 500)

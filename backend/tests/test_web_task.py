@@ -45,6 +45,13 @@ class TestWebTaskProofreading(unittest.TestCase):
         self.assertNotIn("--fix-source-text", FakePopen.command)
         self.assertFalse(job["proofread"])
 
+    def test_correction_model_is_passed_only_when_chosen(self):
+        run_web_task(SubtitleRequest(url="https://www.youtube.com/watch?v=T3VwdAhbbQg"))
+        self.assertNotIn("--correction-model", FakePopen.command)   # entry_cli's default
+        run_web_task(SubtitleRequest(url="https://www.youtube.com/watch?v=T3VwdAhbbQg",
+                                     correction_model="gemini-3.1-pro-preview"))
+        self.assertEqual(FakePopen.command[FakePopen.command.index("--correction-model") + 1], "gemini-3.1-pro-preview")
+
 
 if __name__ == "__main__":
     unittest.main()

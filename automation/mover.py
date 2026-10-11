@@ -632,7 +632,8 @@ def build_cli_command(video_url, target_video_path, processing=None):
     if proc.get("translate_title", DEFAULT_PROCESSING["translate_title"]):
         cli_cmd.append("--translate-title")
     if proc.get("fix_source_text", DEFAULT_PROCESSING["fix_source_text"]):
-        cli_cmd.append("--fix-source-text")
+        cli_cmd += ["--fix-source-text",
+                    "--correction-model", proc.get("correction_model", DEFAULT_PROCESSING["correction_model"])]
     # 字幕样式（视觉实验室「设为投稿样式」写进来的）。没有就用 entry_cli 的缺省样式，和以前一样。
     style_errors = []
     style = store.normalize_style(proc.get("style"), style_errors)

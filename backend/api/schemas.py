@@ -8,6 +8,8 @@ class SubtitleRequest(BaseModel):
     target_language_code: str = Field("zh-CN", alias="target_lang")
     is_furigana_enabled: bool = Field(True, alias="enable_furigana")
     should_fix_source_text: bool = Field(True, alias="fix_source")
+    # 不填就用 entry_cli 的缺省（engines/source_corrector.CORRECTION_MODEL）
+    correction_model: Optional[str] = Field(None, alias="correction_model")
     segment_mode: str = Field("rule", alias="segment_mode")
     
     font_size_main: int = 90

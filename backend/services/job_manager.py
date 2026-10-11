@@ -56,6 +56,8 @@ class JobExecutionManager:
             cli_command.append("--enable-furigana")
         if request_parameters.should_fix_source_text:
             cli_command.append("--fix-source-text")
+            if request_parameters.correction_model:
+                cli_command += ["--correction-model", request_parameters.correction_model]
         cli_command.append("--translate-title")
         
         execution_environment = os.environ.copy()

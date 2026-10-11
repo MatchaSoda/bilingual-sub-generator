@@ -105,6 +105,14 @@ class NormalizeConfigTests(unittest.TestCase):
         self.assertEqual(sorted(e["path"] for e in errors),
                          ["backfill.mode", "processing.segment_mode", "processing.whisper_model", "upload.line"])
 
+    def test_model_names_are_trimmed_and_required(self):
+        config, errors = store.normalize_config({"processing": {"gemini_model": " gemini-3.1-flash-lite ",
+                                                                "correction_model": " gemini-3.1-pro-preview "}})
+        self.assertEqual(errors, [])
+        self.assertEqual(config["processing"]["correction_model"], "gemini-3.1-pro-preview")
+        _, errors = store.normalize_config({"processing": {"correction_model": "  "}})
+        self.assertEqual([e["path"] for e in errors], ["processing.correction_model"])
+
     def test_empty_upload_line_means_auto(self):
         config, errors = store.normalize_config({"upload": {"line": ""}})
         self.assertEqual(errors, [])

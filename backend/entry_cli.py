@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).parent))
 from engines.media_downloader import YouTubeMediaDownloader
 from engines.transcription_engine import AudioTranscriptionEngine
 from engines.subtitle_translator import GeminiSubtitleTranslator
-from engines.source_corrector import AsrSourceCorrector
+from engines.source_corrector import AsrSourceCorrector, CORRECTION_MODEL
 from engines.subtitle_generator import AdvancedSubtitleScriptGenerator
 from engines.video_processor import FFmpegVideoProcessor
 from engines.segment_optimizer import SubtitleSegmentOptimizer
@@ -23,11 +23,11 @@ from utils.filenames import truncate_utf8
 def sanitize_for_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "_", name).strip()
 
-def proofread_source_text(subtitle_segments, source_language, media_info, video_title):
+def proofread_source_text(subtitle_segments, source_language, media_info, video_title, model_name):
     """--fix-source-text: fix mis-heard words before translating. Never fails the video;
     if Gemini is unreachable the recognized text is translated as it is."""
     try:
-        report = AsrSourceCorrector().correct(
+        report = AsrSourceCorrector(model_name=model_name).correct(
             subtitle_segments, source_language,
             title=media_info['original_title'], description=media_info.get('description', '')
         )
@@ -51,6 +51,7 @@ def run_subtitle_generation_pipeline():
     argument_parser.add_argument("--gemini-model", default="gemini-3.1-flash-lite", help="Gemini model identifier")
     argument_parser.add_argument("--enable-furigana", action="store_true", help="Enable Japanese furigana")
     argument_parser.add_argument("--fix-source-text", action="store_true", help="Before translating, fix mis-heard words in the Japanese ASR text (separate Gemini pass, checked against readings and the video's title / description)")
+    argument_parser.add_argument("--correction-model", default=CORRECTION_MODEL, help="Gemini model for --fix-source-text (RUNBOOK §5.12 compares models on a replay)")
     argument_parser.add_argument("--translate-title", action="store_true", help="Translate the video title into the target language and use it for the default output filename")
     argument_parser.add_argument("--segment-mode", choices=["rule", "llm"], default="rule", help="Subtitle segmentation: 'rule' (offline, MeCab + punctuation + pause) or 'llm' (Gemini semantic)")
     argument_parser.add_argument("--translation-batch-size", type=int, default=100, help="How many subtitle segments to translate per Gemini call. Larger = better cross-line context. Output tokens are rarely the limit (model allows 64k); the real ceilings are the request timeout and the model occasionally dropping a line in very large batches.")
@@ -112,7 +113,8 @@ def run_subtitle_generation_pipeline():
         )
         final_subtitle_segments = refined_subtitle_segments
         if pipeline_arguments.fix_source_text:
-            proofread_source_text(final_subtitle_segments, detected_source_language, downloaded_media_info, video_title)
+            proofread_source_text(final_subtitle_segments, detected_source_language, downloaded_media_info, video_title,
+                                  pipeline_arguments.correction_model)
         processing_batch_size = max(1, pipeline_arguments.translation_batch_size)
         for batch_start_index in range(0, len(final_subtitle_segments), processing_batch_size):
             current_batch = final_subtitle_segments[batch_start_index:batch_start_index + processing_batch_size]

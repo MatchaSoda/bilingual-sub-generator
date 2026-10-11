@@ -1,9 +1,10 @@
 // 自动搬运相关的显示文字和时间格式，几个面板共用。
 
-// 和 backend/utils/pipeline_stages.py 的 STAGES 对应；upload 只有投稿任务才有
+// 和 backend/utils/pipeline_stages.py 的 STAGES 对应；proofread 只有开了「AI 原文纠错」才有，upload 只有投稿任务才有
 export const PIPELINE_STAGES: { key: string; label: string }[] = [
   { key: 'download', label: '下载' },
   { key: 'transcribe', label: '转写' },
+  { key: 'proofread', label: '纠错' },
   { key: 'translate', label: '翻译' },
   { key: 'encode', label: '压制' },
   { key: 'upload', label: '投稿' },
@@ -13,6 +14,7 @@ export const STAGE_LABELS: Record<string, string> = {
   queued: '排队中',
   download: '下载',
   transcribe: '转写',
+  proofread: '纠错',
   translate: '翻译',
   encode: '压制',
   upload: '投稿',

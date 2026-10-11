@@ -131,7 +131,7 @@ const TelemetryPanel = ({ logs, status, task, onCancel, onRetry }: TelemetryPane
           }}
         >
           {status !== 'queued' && status !== 'cancelled' && (
-            <StageProgress stage={task.stage} status={status} withUpload={publish} />
+            <StageProgress stage={task.stage} status={status} withUpload={publish} withProofread={!!task.proofread} />
           )}
           {publish && <PublishInfo task={task} onCancel={onCancel} onRetry={onRetry} />}
         </Paper>

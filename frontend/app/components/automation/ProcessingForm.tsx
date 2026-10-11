@@ -135,7 +135,7 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
                 onChange={(v) => setProcessing('enable_furigana', v)} />
               <SwitchRow label="翻译视频标题" description="B 站标题和成品文件名用中文" checked={processing.translate_title}
                 onChange={(v) => setProcessing('translate_title', v)} />
-              <SwitchRow label="AI 原文纠错" description="翻译时顺带修正语音识别的错字" checked={processing.fix_source_text}
+              <SwitchRow label="AI 原文纠错" description="翻译前单独校一遍全片：对照标题和简介改语音识别的错字，读音对不上的不改" checked={processing.fix_source_text}
                 onChange={(v) => setProcessing('fix_source_text', v)} />
             </Stack>
           </Grid>

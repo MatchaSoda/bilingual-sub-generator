@@ -189,7 +189,7 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Box>
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>AI 原文纠错</Typography>
-                <Typography variant="caption" color="text.secondary">使用 LLM 修复 ASR 识别出的拼写错误</Typography>
+                <Typography variant="caption" color="text.secondary">翻译前单独校一遍全片：对照标题和简介改语音识别的错字，读音对不上的不改</Typography>
               </Box>
               <Switch 
                 checked={form.fix_source} 

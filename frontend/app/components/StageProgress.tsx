@@ -11,12 +11,15 @@ interface StageProgressProps {
   // 任务面板的状态名：pending / queued / processing / completed / failed / cancelled
   status: string;
   withUpload?: boolean;
+  // 开了「AI 原文纠错」的任务，转写和翻译之间多一步
+  withProofread?: boolean;
   dense?: boolean;
 }
 
-// 下载 → 转写 → 翻译 → 压制（→ 投稿）。Web 任务和投稿任务共用，阶段由后端从 entry_cli 的输出推断
-const StageProgress = ({ stage, status, withUpload = false, dense = false }: StageProgressProps) => {
-  const stages = PIPELINE_STAGES.filter((s) => withUpload || s.key !== 'upload');
+// 下载 → 转写（→ 纠错）→ 翻译 → 压制（→ 投稿）。Web 任务和投稿任务共用，阶段由后端从 entry_cli 的输出推断
+const StageProgress = ({ stage, status, withUpload = false, withProofread = false, dense = false }: StageProgressProps) => {
+  const stages = PIPELINE_STAGES.filter((s) =>
+    (withUpload || s.key !== 'upload') && (withProofread || stage === 'proofread' || s.key !== 'proofread'));
   const index = stages.findIndex((s) => s.key === stage);
   const finished = status === 'completed';
   const failed = status === 'failed';

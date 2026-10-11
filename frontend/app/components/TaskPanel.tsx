@@ -19,7 +19,7 @@ import MovieIcon from '@mui/icons-material/Movie';
 import SendIcon from '@mui/icons-material/Send';
 
 import { AccountStatus, automationApi, AutomationConfigResponse, AutomationStatus, PublishRequest } from '../../src/api';
-import { filledFieldSx, pickStyle, sameStyle, STYLE_KEYS } from '../../src/automation';
+import { filledFieldSx, pickStyle, sameStyle, sameStyleValue, STYLE_KEYS } from '../../src/automation';
 import { describeMover } from './automation/StatusCard';
 
 export type TaskMode = 'generate' | 'publish';
@@ -110,7 +110,7 @@ const TaskPanel = ({
         correction: processing.fix_source_text ? processing.correction_model : null,
         furigana: processing.enable_furigana,
         customStyle: STYLE_KEYS.some((key) => processing.style?.[key] !== undefined
-          && Number(processing.style[key]) !== Number(meta?.style_defaults[key])),
+          && !sameStyleValue(key, processing.style[key], meta?.style_defaults[key])),
       } : null
     : {
         whisper: form.model,

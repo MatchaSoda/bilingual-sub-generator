@@ -17,7 +17,7 @@ import UploadIcon from '@mui/icons-material/CloudUpload';
 import ImportIcon from '@mui/icons-material/Input';
 
 import { AutomationConfig, AutomationConfigResponse } from '../../../src/api';
-import { cardSx, filledFieldSx, pickStyle, sameStyle, STYLE_KEYS } from '../../../src/automation';
+import { cardSx, filledFieldSx, pickStyle, sameStyle, sameStyleValue, STYLE_KEYS } from '../../../src/automation';
 import { NumberField, SectionTitle, SwitchRow, TextInput } from './fields';
 
 const STYLE_LABELS: Record<string, string> = {
@@ -25,6 +25,8 @@ const STYLE_LABELS: Record<string, string> = {
   font_weight: '原文字重', outline_main: '原文描边', shadow_main: '原文阴影',
   font_size_sub: '译文字号', sub_bottom: '译文底距', sub_alpha: '译文不透明度', outline_sub_alpha: '译文描边不透明度',
   font_weight_sub: '译文字重', outline_sub: '译文描边', shadow_sub: '译文阴影',
+  font_main: '原文字体', color_main: '原文颜色', outline_color_main: '原文描边颜色',
+  font_sub: '译文字体', color_sub: '译文颜色', outline_color_sub: '译文描边颜色',
 };
 
 const WHISPER_LABELS: Record<string, string> = {
@@ -58,7 +60,23 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
   const setUpload = (key: string, value: any) => onChange((d) => ({ ...d, upload: { ...d.upload, [key]: value } }));
 
   const style = processing.style || {};
-  const customKeys = STYLE_KEYS.filter((key) => style[key] !== undefined && style[key] !== meta.style_defaults[key]);
+  const customKeys = STYLE_KEYS.filter((key) => style[key] !== undefined
+    && !sameStyleValue(key, style[key], meta.style_defaults[key]));
+  // 字体显示界面上的名字，颜色带一个色块
+  const fontLabels = Object.fromEntries((meta.options.subtitle_fonts || []).map((font) => [font.family, font.label]));
+  const styleValue = (key: string, value: number | string | undefined) => {
+    if (key.startsWith('font_') && typeof value === 'string') return fontLabels[value] || value;
+    if (key.includes('color')) {
+      return (
+        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+          <Box component="span" sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: String(value),
+            border: '1px solid rgba(255,255,255,0.4)' }} />
+          {value}
+        </Box>
+      );
+    }
+    return value;
+  };
   const webStyle = pickStyle(webForm);
   const effectiveStyle = { ...meta.style_defaults, ...style };
   const webMatches = sameStyle(webStyle, effectiveStyle);
@@ -171,7 +189,11 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
         {customKeys.length > 0 && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
             {customKeys.map((key) => (
-              <Chip key={key} size="small" label={`${STYLE_LABELS[key] || key} ${style[key]}（默认 ${meta.style_defaults[key]}）`} />
+              <Chip key={key} size="small" label={
+                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                  {STYLE_LABELS[key] || key} {styleValue(key, style[key])}（默认 {styleValue(key, meta.style_defaults[key])}）
+                </Box>
+              } />
             ))}
           </Box>
         )}

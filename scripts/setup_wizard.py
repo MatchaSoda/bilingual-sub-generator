@@ -30,6 +30,7 @@ from utils.setup_checks import (  # noqa: E402
     inspect_netscape_cookies, normalize_cookie_text, proxy_candidates,
     read_env_file, write_env_file, parse_api_keys,
 )
+from utils import subtitle_fonts  # noqa: E402
 
 IN_DOCKER = Path("/.dockerenv").exists() or os.getenv("IN_DOCKER") == "1"
 _state_override = os.getenv("AUTOMATION_STATE_DIR")
@@ -183,16 +184,22 @@ def step_environment(report_only=False):
         bad("找不到 ffmpeg，无法压制视频")
         all_good = False
 
-    try:
-        fonts = subprocess.run(["fc-list", ":family"], capture_output=True, text=True, timeout=20).stdout
-    except Exception:  # noqa: BLE001
-        fonts = ""
-    if "Noto Sans CJK" in fonts:
-        ok("字体 Noto Sans CJK 已安装（字幕用）")
+    # 字幕字体（backend/utils/subtitle_fonts.py）：缺省的思源黑体必须有；可选的缺了只是视觉实验室里选不了
+    installed = subtitle_fonts.installed_families() or frozenset()
+    defaults = set(subtitle_fonts.DEFAULT_FONTS.values())
+    if defaults <= installed:
+        ok("字幕的缺省字体 Noto Sans CJK JP / SC 已安装")
     else:
-        bad("没有 Noto Sans CJK 字体。ffmpeg 会静默换成别的字体，字幕出现方块或缺字。"
+        bad("没有 Noto Sans CJK 字体，字幕任务开工前就会报错（libass 不会再静默换字体）。"
             + ("镜像构建有问题，请重新 build。" if IN_DOCKER else "请安装 fonts-noto-cjk。"))
         all_good = False
+    missing = [font for font in subtitle_fonts.FONTS if font["family"] not in installed | defaults]
+    if missing:
+        packages = " ".join(sorted({font["package"] for font in missing}))
+        warn(f"视觉实验室里这几款字体选不了（没装）：{'、'.join(font['label'] for font in missing)}。"
+             + ("镜像构建有问题，请重新 build。" if IN_DOCKER else f"装 {packages} 就有。"))
+    else:
+        ok(f"视觉实验室的可选字体都在（{len(subtitle_fonts.FONTS)} 款）")
 
     chrome = None
     try:

@@ -26,7 +26,7 @@ ENV PYTHONUNBUFFERED=1 \
     TZ=Asia/Tokyo
 
 # ffmpeg      压制
-# fonts-noto-cjk  字幕样式写死了 Noto Sans CJK JP/SC，缺了会静默换字体（豆腐块）
+# fonts-noto-cjk  字幕的缺省字体 Noto Sans CJK JP/SC（还有可选的宋体）；字体缺了 libass 会静默换字体，entry_cli 开工前会检查
 # chromium + xvfb  yt-dlp-getpot-wpc 取 PO Token（RUNBOOK §5.3）
 # tzdata      日志时间
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -44,6 +44,12 @@ COPY requirements.txt ./
 RUN python -m venv /app/venv \
     && /app/venv/bin/pip install --upgrade pip \
     && /app/venv/bin/pip install -r requirements.txt
+# 视觉实验室可选的字幕字体（backend/utils/subtitle_fonts.py 那张表；思源黑体 / 宋体在上面的 fonts-noto-cjk 里）。
+# 单独一层放在 pip 之后：改这里不会让装依赖那几层失效。预览和压制都在这个镜像里用这些文件渲染。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        fonts-lxgw-wenkai fonts-klee fonts-morisawa-bizud-gothic fonts-motoya-l-maruberi \
+    && fc-cache -f \
+    && rm -rf /var/lib/apt/lists/*
 # yt-dlp 跟着 YouTube 改接口频繁发版，过期了就下载失败（RUNBOOK §5.3）。上面那层只在 requirements.txt 或基础镜像
 # 变了才重跑，build --pull 也不会让它失效，所以 ./docker-start.sh update 每次传一个新的 YTDLP_REFRESH，
 # 只让这一层重跑、把 yt-dlp 升到最新，其余层照常走缓存。

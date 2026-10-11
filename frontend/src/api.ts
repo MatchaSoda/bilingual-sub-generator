@@ -155,6 +155,7 @@ export interface AutomationConfig {
     enable_furigana: boolean;
     translate_title: boolean;
     fix_source_text: boolean;
+    correction_model: string;
     style: Record<string, number>;
   };
   upload: {

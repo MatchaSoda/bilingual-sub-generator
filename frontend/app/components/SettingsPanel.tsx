@@ -254,6 +254,28 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
               </Select>
             </FormControl>
 
+            <FormControl fullWidth variant="filled" disabled={!form.fix_source}>
+              <InputLabel sx={{ fontWeight: 900, textTransform: 'uppercase', fontSize: 10, letterSpacing: 1.5 }}>纠错引擎 (AI 原文纠错)</InputLabel>
+              <Select
+                value={form.correction_model || 'gemini-3.5-flash'}
+                onChange={(e)=>setForm({...form, correction_model: e.target.value})}
+                disableUnderline
+                sx={{
+                borderRadius: 3,
+                  bgcolor: 'rgba(0,0,0,0.3)',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,0.4)' },
+                  fontWeight: 700
+                }}
+              >
+                {/* 回放 54 条视频：3.5 Flash 改错 0 行，3.1 Flash Lite 改错 6 行（RUNBOOK §5.12） */}
+                <MenuItem value="gemini-3.5-flash">Gemini 3.5 Flash (推荐·默认)</MenuItem>
+                <MenuItem value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (快·改错多)</MenuItem>
+                <MenuItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro (旗舰级推理)</MenuItem>
+                <MenuItem value="gemini-3-flash-preview">Gemini 3 Flash (极速响应)</MenuItem>
+                <MenuItem value="gemini-2.5-flash">Gemini 2.5 Flash (稳定版)</MenuItem>
+              </Select>
+            </FormControl>
+
             <FormControl fullWidth variant="filled">
               <InputLabel sx={{ fontWeight: 900, textTransform: 'uppercase', fontSize: 10, letterSpacing: 1.5 }}>断句模式</InputLabel>
               <Select

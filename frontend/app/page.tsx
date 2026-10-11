@@ -45,6 +45,7 @@ const DEFAULT_FORM = {
   translation_model: 'gemini-3-flash-preview',
   enable_furigana: true,
   fix_source: true,
+  correction_model: 'gemini-3.5-flash',
   segment_mode: 'rule',
   target_lang: 'zh-CN',
   font_size_main: 90,

@@ -74,6 +74,7 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
         segment_mode: webForm.segment_mode || d.processing.segment_mode,
         enable_furigana: !!webForm.enable_furigana,
         fix_source_text: !!webForm.fix_source,
+        correction_model: webForm.correction_model || d.processing.correction_model,
         style: webStyle,
       },
     }));
@@ -116,6 +117,21 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
             />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
+            <Autocomplete
+              freeSolo
+              options={meta.options.gemini_models}
+              value={processing.correction_model || ''}
+              disabled={!processing.fix_source_text}
+              onInputChange={(_, value) => setProcessing('correction_model', value)}
+              renderInput={(params) => (
+                <TextField {...params} InputProps={{ ...params.InputProps, disableUnderline: true }}
+                  variant="filled" label="纠错模型（AI 原文纠错）" sx={filledFieldSx}
+                  error={!!errors['processing.correction_model']}
+                  helperText={errors['processing.correction_model'] || '推荐 3.5 Flash：回放里改错最少（RUNBOOK §5.12）'} />
+              )}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
             <TextField select fullWidth variant="filled" label="断句" value={processing.segment_mode || 'rule'}
               onChange={(e) => setProcessing('segment_mode', e.target.value)}
               slotProps={{ input: { disableUnderline: true } as any }} sx={filledFieldSx}>
@@ -123,13 +139,13 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
               <MenuItem value="llm">LLM 语义断句（Gemini）</MenuItem>
             </TextField>
           </Grid>
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <NumberField label="每批翻译多少行" value={processing.translation_batch_size}
               error={errors['processing.translation_batch_size']}
               helper="大一点上下文更连贯；模型偶尔会合并行，数量对不上会自动对半拆"
               onChange={(v) => setProcessing('translation_batch_size', v)} />
           </Grid>
-          <Grid size={{ xs: 12, md: 8 }}>
+          <Grid size={12}>
             <Stack spacing={1.5} sx={{ pt: 0.5 }}>
               <SwitchRow label="日语假名注音" description="在日文字幕上方加振假名" checked={processing.enable_furigana}
                 onChange={(v) => setProcessing('enable_furigana', v)} />

@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from api.routes import api_router
 from api.automation_routes import automation_router
+from api.subtitle_routes import subtitle_router
 from config.settings import FRONTEND_DIST, DOWNLOADS_DIR, AUTOMATION_OUTPUT_DIR
 
 web_application_instance = FastAPI()
@@ -29,6 +30,8 @@ async def inject_security_and_wasm_headers(http_request, next_handler):
 web_application_instance.include_router(api_router, prefix="/api")
 # 「自动搬运」页面：状态、配置、投稿队列、B 站账号（和 mover 通过 userdata 下的文件协作）
 web_application_instance.include_router(automation_router, prefix="/api/automation")
+# 视觉实验室：可选字体、用压制成片的同一套代码渲染的预览图
+web_application_instance.include_router(subtitle_router, prefix="/api/subtitle")
 web_application_instance.mount("/api/downloads", StaticFiles(directory=str(DOWNLOADS_DIR)), name="downloads")
 # 自动搬运的成品，媒体库里标「自动搬运」的那些（api/routes.py 的 LIBRARY_SOURCES）
 web_application_instance.mount("/api/outputs", StaticFiles(directory=str(AUTOMATION_OUTPUT_DIR)), name="outputs")

@@ -2,6 +2,12 @@ import subprocess
 import json
 from pathlib import Path
 
+
+def subtitles_filter(subtitle_ass_path):
+    """压制和视觉实验室的预览（services/subtitle_preview.py）用同一个滤镜，预览出来的才是成片的样子。"""
+    return f"subtitles='{Path(subtitle_ass_path).absolute()}'"
+
+
 class FFmpegVideoProcessor:
     def __init__(self):
         pass
@@ -38,13 +44,11 @@ class FFmpegVideoProcessor:
         return 'bt709' if int(stream.get('height', 0)) >= 720 else 'bt601'
 
     def hardcode_subtitles_into_video(self, source_video_path, subtitle_ass_path, target_output_path):
-        absolute_subtitle_path = str(Path(subtitle_ass_path).absolute())
-        
         ffmpeg_conversion_command = [
             "ffmpeg",
             "-y",
             "-i", str(source_video_path),
-            "-vf", f"subtitles='{absolute_subtitle_path}'",
+            "-vf", subtitles_filter(subtitle_ass_path),
             "-c:a", "aac",
             str(target_output_path)
         ]

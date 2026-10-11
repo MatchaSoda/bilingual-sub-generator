@@ -128,7 +128,8 @@ Dockerfile 的字体层），样式字段在 `automation_store.STYLE_*`：Web �
 ### 配置的三个来源
 
 1. `.env` → `GOOGLE_API_KEYS`（逗号分隔，`config/keys.py` 轮询使用）
-2. `backend/config/settings.py` → 路径、代理、cookie 位置、默认字幕样式
+2. `backend/config/settings.py` → 路径、代理、cookie 位置（字幕样式的缺省值在 `utils/automation_store.STYLE_DEFAULTS`，
+   `settings.py` 里的 `DEFAULT_STYLE` 已经没有路径会用到）
 3. `automation/config.json` → 频道列表、过滤规则、`processing` 段的流水线参数（含 `style` 字幕样式）、`upload` 段的上传线路和
    标题 / 简介模板、`backfill` 段的起点水位、`cleanup` 段的媒体文件保留天数（RUNBOOK §4）、`paused` 暂停扫描。
    Web「自动搬运」页能改全部这些；所有「没写时的缺省值」集中在 `automation_store.DEFAULTS`，mover 和界面看到的是同一份。

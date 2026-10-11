@@ -33,6 +33,8 @@ class AudioTranscriptionEngine:
             # primed by its own (possibly wrong) previous segment, which produces the
             # "same sentence repeated 4 times" looping we observed on news clips.
             condition_on_previous_text=False,
+            # Never add hotwords / initial_prompt (user's rule): priming punctuation silently dropped ~20%
+            # of the speech on turbo and collapsed large-v3 into repetitions. See docs/RUNBOOK.md §5.14.
         )
         
         print(f"✅ Detected language: {transcription_info.language} (prob: {transcription_info.language_probability:.2f})", flush=True)

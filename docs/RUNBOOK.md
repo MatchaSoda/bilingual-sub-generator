@@ -670,6 +670,20 @@ docker compose run --rm -T setup bash -c '/app/venv/bin/python3 /app/scripts/rep
 `win_ratio`、确认装了），再跑 §6 的核对脚本。先拿缓存字幕查缺字，日文字体还要确认假名、汉字是全角等宽的（P 系列是比例宽度，
 比如 BIZ UDPゴシック，振假名会对歪）。
 
+### 5.14 Whisper 不要加 `hotwords` / `initial_prompt`（用户明确禁止）
+
+起因：识别结果经常整条没有标点，turbo 和 large-v3 都这样，生产 `.asr.json` 里一千多字零句号的很常见；人名也常认错。
+试过的做法：把视频标题加一句带标点的日语，作为 `hotwords` 传给 faster-whisper。`condition_on_previous_text=False` 时，
+只有 `hotwords` 会作用到每个 30 秒窗口，`initial_prompt` 只影响第一个窗口。
+
+10-11 实测（8 分钟新闻，容器 CPU、int8、beam 5，和生产参数一致）：
+- turbo：标点回来了（句号 6 → 41），但丢了约 20% 的内容，4:00–4:30 等几段整段没有输出。
+- large-v3：崩了，整条只剩 416 字，后半段是「きききき」「5050505050」这类重复。
+- 标题里的人名（硤合）两个模型都没认对。
+
+**用户的要求：这类提示词千万不能用。** 丢内容和乱码都是静默的，不报错。标点不全由分段兜住（MeCab + 停顿，
+`segment_optimizer.py`），人名交给 §5.12 的纠错，它会参考标题和简介。新闻搬运要的是准确，不是速度，模型用 large-v3（10-11 起）。
+
 ---
 
 ## 6. 验证脚本

@@ -50,6 +50,18 @@ const StyleSlider = ({ label, value, min, max, step = 1, unit = '', onChange }: 
   </Box>
 );
 
+// libass 只分常规和粗体：字重大于 500 就是粗体（subtitle_generator.py），所以只给两档
+const WeightField = ({ value, onChange }: { value: number; onChange: (v: number) => void }) => (
+  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+    <Typography sx={labelSx}>字重</Typography>
+    <ToggleButtonGroup size="small" exclusive fullWidth value={value > 500 ? 700 : 400}
+      onChange={(_, v) => { if (v !== null) onChange(v); }}>
+      <ToggleButton value={400} sx={{ py: 0.25, fontSize: 11 }}>常规</ToggleButton>
+      <ToggleButton value={700} sx={{ py: 0.25, fontSize: 11, fontWeight: 900 }}>粗体</ToggleButton>
+    </ToggleButtonGroup>
+  </Box>
+);
+
 // 字幕常用的几种颜色；别的颜色用最后那个取色器
 const TEXT_COLORS = [
   { value: '#FFFFFF', name: '白' }, { value: '#FFFF00', name: '黄' }, { value: '#FFE16B', name: '暖黄' },
@@ -286,7 +298,7 @@ const DesignPanel = ({ form, setForm }: { form: any; setForm: (form: any) => voi
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
-          <Tooltip title="预览图由服务器用压制视频的同一套 ffmpeg、libass 和字体渲染，和成片逐像素一致（只差视频压缩）">
+          <Tooltip title="预览图由服务器用压制视频的同一套 ffmpeg、libass 和字体渲染，16:9 的视频和成片逐像素一致（只差视频压缩）">
             <Chip
               icon={rendering ? <CircularProgress size={12} color="inherit" /> : <CheckIcon sx={{ fontSize: 14 }} />}
               label={rendering ? '渲染中' : renderError ? '渲染出错' : '成片渲染'}
@@ -329,7 +341,8 @@ const DesignPanel = ({ form, setForm }: { form: any; setForm: (form: any) => voi
                 slotProps={{ input: { disableUnderline: true } as any, htmlInput: { maxLength: maxTextLength } }} />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              这张图是服务器用压制视频的同一套代码、同一批字体渲染的 1920×1080 画面，成片就是这个样子（只多了视频压缩）。
+              这张图是服务器用压制视频的同一套代码、同一批字体渲染的 1920×1080 画面，16:9 的视频成片就是这个样子
+              （只多了视频压缩；竖屏等别的比例排版会不一样）。
               {form.enable_furigana ? '振假名按「系统设置」打开。' : '「系统设置」里关了振假名。'}
               {background === 'video' && preview?.source ? ` 背景是「${preview.source}」的一帧。` : ''}
             </Typography>
@@ -360,7 +373,7 @@ const DesignPanel = ({ form, setForm }: { form: any; setForm: (form: any) => voi
                   <ColorField label="描边颜色" value={form[layer.outlineColor]} presets={OUTLINE_COLORS}
                     onChange={(color) => set(layer.outlineColor, color)} />
                   <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
-                    <StyleSlider label="字号" value={form[layer.size]} min={10} max={150} unit="px"
+                    <StyleSlider label="字号" value={form[layer.size]} min={10} max={150}
                       onChange={(v) => set(layer.size, v)} />
                     <StyleSlider label="底距" value={form[layer.bottom]} min={0} max={100} step={0.1} unit="%"
                       onChange={(v) => set(layer.bottom, v)} />
@@ -370,8 +383,7 @@ const DesignPanel = ({ form, setForm }: { form: any; setForm: (form: any) => voi
                       onChange={(v) => set(layer.shadow, v)} />
                     <StyleSlider label="不透明度" value={form[layer.alpha] ?? 100} min={0} max={100} unit="%"
                       onChange={(v) => set(layer.alpha, v)} />
-                    <StyleSlider label="字重" value={form[layer.weight] ?? layer.defaultWeight} min={100} max={900} step={100}
-                      onChange={(v) => set(layer.weight, v)} />
+                    <WeightField value={form[layer.weight] ?? layer.defaultWeight} onChange={(v) => set(layer.weight, v)} />
                   </Box>
                 </Box>
               </React.Fragment>

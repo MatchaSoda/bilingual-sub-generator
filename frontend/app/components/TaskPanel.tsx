@@ -19,7 +19,7 @@ import MovieIcon from '@mui/icons-material/Movie';
 import SendIcon from '@mui/icons-material/Send';
 
 import { AccountStatus, automationApi, AutomationConfigResponse, AutomationStatus, PublishRequest } from '../../src/api';
-import { filledFieldSx } from '../../src/automation';
+import { filledFieldSx, pickStyle, sameStyle, STYLE_KEYS } from '../../src/automation';
 import { describeMover } from './automation/StatusCard';
 
 export type TaskMode = 'generate' | 'publish';
@@ -40,6 +40,36 @@ interface TaskPanelProps {
 const YOUTUBE_VIDEO = /^(https?:\/\/)?((www|m|music)\.)?(youtube\.com\/(watch\?(.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)[A-Za-z0-9_-]{11}(?![A-Za-z0-9_-])/;
 
 const chipSx = { fontWeight: 900, textTransform: 'uppercase', fontSize: 10 };
+const modelChipSx = { ...chipSx, borderColor: 'rgba(20, 184, 166, 0.3)', color: 'secondary.light' };
+const shortModel = (model?: string) => (model || '').replace('gemini-', 'G-');
+
+interface ProcessingSummary {
+  whisper: string;
+  translator: string;
+  correction: string | null;   // 原文纠错用的模型；null = 没开
+  furigana: boolean;
+  customStyle: boolean | null; // null = 还不知道样式缺省值
+}
+
+// 两种模式显示同一组标签，只是参数来源不同：仅生成用「系统设置」「视觉实验室」，生成并投稿用「自动搬运 › 处理与投稿」
+const ProcessingChips = ({ summary, onSettings }: { summary: ProcessingSummary; onSettings: () => void }) => (
+  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" justifyContent="center" alignItems="center">
+    <Chip variant="outlined" size="small" label={`ASR: ${summary.whisper}`}
+      sx={{ ...chipSx, borderColor: 'rgba(59, 130, 246, 0.3)', color: 'primary.light' }} />
+    <Chip variant="outlined" size="small" label={`Translator: ${shortModel(summary.translator)}`} sx={modelChipSx} />
+    {summary.correction && (
+      <Chip variant="outlined" size="small" label={`原文纠错: ${shortModel(summary.correction)}`} sx={modelChipSx} />
+    )}
+    {summary.furigana && <Chip variant="outlined" size="small" label="振假名" sx={chipSx} />}
+    {summary.customStyle !== null && (
+      <Chip variant="outlined" size="small" label={summary.customStyle ? '自定义样式' : '默认样式'} sx={chipSx} />
+    )}
+    <Button size="small" startIcon={<SettingsIcon sx={{ fontSize: 14 }} />} onClick={onSettings}
+      sx={{ color: 'text.secondary', fontSize: 10, fontWeight: 900, '&:hover': { color: 'white', bgcolor: 'transparent' } }}>
+      修改设置
+    </Button>
+  </Stack>
+);
 
 const TaskPanel = ({
   form, setForm, startTask, startPublish, status, onNavigate, mode, setMode, automationStatus,
@@ -54,11 +84,10 @@ const TaskPanel = ({
   const publish = mode === 'publish';
   const channels = meta?.effective.channels || [];
 
-  // 进投稿模式时拿一次投稿预设和账号状态
+  // 切模式时拿一次处理预设（两种模式的标签都要用：投稿参数、样式缺省值）；投稿模式再拿账号状态
   useEffect(() => {
-    if (!publish) return;
     automationApi.getConfig().then((res) => setMeta(res.data)).catch(() => setMeta(null));
-    automationApi.account(true).then((res) => setAccount(res.data)).catch(() => setAccount(null));
+    if (publish) automationApi.account(true).then((res) => setAccount(res.data)).catch(() => setAccount(null));
   }, [publish]);
 
   // 选哪个频道，分区和标签就先填那个频道的，可以再改
@@ -74,7 +103,22 @@ const TaskPanel = ({
   const url = (form.url || '').trim();
   const urlInvalid = publish && url !== '' && !YOUTUBE_VIDEO.test(url);
   const processing = meta?.effective.processing;
-  const customStyle = processing?.style && Object.keys(processing.style).length > 0;
+  const summary: ProcessingSummary | null = publish
+    ? processing ? {
+        whisper: processing.whisper_model,
+        translator: processing.gemini_model,
+        correction: processing.fix_source_text ? processing.correction_model : null,
+        furigana: processing.enable_furigana,
+        customStyle: STYLE_KEYS.some((key) => processing.style?.[key] !== undefined
+          && Number(processing.style[key]) !== Number(meta?.style_defaults[key])),
+      } : null
+    : {
+        whisper: form.model,
+        translator: form.translation_model,
+        correction: form.fix_source ? form.correction_model || 'gemini-3.5-flash' : null,
+        furigana: !!form.enable_furigana,
+        customStyle: meta ? !sameStyle(pickStyle(form), meta.style_defaults) : null,
+      };
   const mover = describeMover(automationStatus);
   const busy = status === 'processing' || status === 'queued' || status === 'pending';
 
@@ -193,7 +237,9 @@ const TaskPanel = ({
           }}
         />
 
-        {publish ? (
+        {summary && <ProcessingChips summary={summary} onSettings={() => onNavigate(publish ? 'automation' : 'settings')} />}
+
+        {publish && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Grid container spacing={2}>
               {channels.length > 1 && (
@@ -227,20 +273,6 @@ const TaskPanel = ({
               </Grid>
             </Grid>
 
-            {processing && (
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
-                <Chip variant="outlined" size="small" label={`ASR: ${processing.whisper_model}`} sx={chipSx} />
-                <Chip variant="outlined" size="small" label={`Translator: ${processing.gemini_model.replace('gemini-', 'G-')}`} sx={chipSx} />
-                {processing.enable_furigana && <Chip variant="outlined" size="small" label="振假名" sx={chipSx} />}
-                {processing.fix_source_text && <Chip variant="outlined" size="small" label="原文纠错" sx={chipSx} />}
-                <Chip variant="outlined" size="small" label={customStyle ? '投稿样式' : '默认样式'} sx={chipSx} />
-                <Button size="small" startIcon={<SettingsIcon sx={{ fontSize: 14 }} />} onClick={() => onNavigate('automation')}
-                  sx={{ color: 'text.secondary', fontSize: 10, fontWeight: 900, '&:hover': { color: 'white', bgcolor: 'transparent' } }}>
-                  投稿预设
-                </Button>
-              </Stack>
-            )}
-
             <Typography variant="caption" color="text.secondary">
               任务交给自动搬运服务排队执行（和频道扫描同一条队列，不会两边同时压视频），处理参数用「自动搬运 › 处理与投稿」里的预设。
               现在：<Box component="span" sx={{ color: mover.color, fontWeight: 700 }}>{mover.label}</Box>
@@ -257,37 +289,6 @@ const TaskPanel = ({
               </Alert>
             )}
           </Box>
-        ) : (
-          <Stack
-            direction="row"
-            justifyContent="center"
-            alignItems="center"
-            spacing={3}
-          >
-            <Chip
-              label={`ASR: ${form.model}`}
-              variant="outlined"
-              sx={{ ...chipSx, borderColor: 'rgba(59, 130, 246, 0.3)', color: 'primary.light' }}
-            />
-            <Chip
-              label={`Translator: ${form.translation_model?.replace('gemini-', 'G-') || 'Flash'}`}
-              variant="outlined"
-              sx={{ ...chipSx, borderColor: 'rgba(20, 184, 166, 0.3)', color: 'secondary.light' }}
-            />
-            <Button
-              size="small"
-              startIcon={<SettingsIcon sx={{ fontSize: 14 }} />}
-              onClick={() => onNavigate('settings')}
-              sx={{
-                color: 'text.secondary',
-                fontSize: 10,
-                fontWeight: 900,
-                '&:hover': { color: 'white', bgcolor: 'transparent' }
-              }}
-            >
-              修改设置
-            </Button>
-          </Stack>
         )}
       </Paper>
 

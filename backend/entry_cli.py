@@ -44,7 +44,9 @@ def check_subtitle_fonts(families):
 
 def proofread_source_text(subtitle_segments, source_language, media_info, video_title, model_name):
     """--fix-source-text: fix mis-heard words before translating. Never fails the video;
-    if Gemini is unreachable the recognized text is translated as it is."""
+    if Gemini is unreachable the recognized text is translated as it is.
+
+    Returns False only when the pass failed, so the translation cache isn't marked as proofread."""
     try:
         report = AsrSourceCorrector(model_name=model_name).correct(
             subtitle_segments, source_language,
@@ -52,15 +54,32 @@ def proofread_source_text(subtitle_segments, source_language, media_info, video_
         )
     except Exception as correction_error:
         print(f"⚠️ ASR correction failed, translating the recognized text as is: {correction_error}", flush=True)
-        return
+        return False
     if report is None:
-        return
+        return True
     # Every applied and rejected fix, for checking what the pass changed (RUNBOOK §5.12)
     try:
         with open(DOWNLOADS_DIR / f"{video_title}.corrections.json", 'w', encoding='utf-8') as report_file:
             json.dump(report.to_json(), report_file, ensure_ascii=False, indent=2)
     except OSError as write_error:
         print(f"⚠️ Could not save the correction report: {write_error}", flush=True)
+    return True
+
+def load_translation_cache(cache_file, needs_proofread):
+    """The cached `.translated.json` segments, or None to translate again.
+
+    A cache written without AI source correction (correction off, or before it became its own pass)
+    carries the unproofread Japanese. Reusing it under --fix-source-text would skip the pass while the
+    UI shows the 纠错 step as done, so it is redone instead (RUNBOOK §5.12)."""
+    if not cache_file.exists():
+        return None
+    with open(cache_file, 'r', encoding='utf-8') as file:
+        segments = json.load(file)
+    if needs_proofread and not any(segment.get("source_proofread") for segment in segments):
+        print("🩹 Cached translations were made without ASR correction; correcting and translating again", flush=True)
+        return None
+    print(f"📦 Loading cached translations from: {cache_file}", flush=True)
+    return segments
 
 def build_argument_parser():
     argument_parser = argparse.ArgumentParser(description="YouTube Bilingual Subtitle Generator")
@@ -133,19 +152,18 @@ def run_subtitle_generation_pipeline():
     )
 
     translation_cache_file = DOWNLOADS_DIR / f"{video_title}.translated.json"
-    if translation_cache_file.exists():
-        print(f"📦 Loading cached translations from: {translation_cache_file}", flush=True)
-        with open(translation_cache_file, 'r', encoding='utf-8') as cache_file:
-            final_subtitle_segments = json.load(cache_file)
-    else:
+    final_subtitle_segments = load_translation_cache(translation_cache_file, pipeline_arguments.fix_source_text)
+    if final_subtitle_segments is None:
         translator = GeminiSubtitleTranslator(
-            target_language_code=pipeline_arguments.target_language, 
+            target_language_code=pipeline_arguments.target_language,
             ai_model_identifier=pipeline_arguments.gemini_model
         )
         final_subtitle_segments = refined_subtitle_segments
         if pipeline_arguments.fix_source_text:
-            proofread_source_text(final_subtitle_segments, detected_source_language, downloaded_media_info, video_title,
-                                  pipeline_arguments.correction_model)
+            if proofread_source_text(final_subtitle_segments, detected_source_language, downloaded_media_info,
+                                     video_title, pipeline_arguments.correction_model):
+                for segment in final_subtitle_segments:
+                    segment["source_proofread"] = True
         processing_batch_size = max(1, pipeline_arguments.translation_batch_size)
         for batch_start_index in range(0, len(final_subtitle_segments), processing_batch_size):
             current_batch = final_subtitle_segments[batch_start_index:batch_start_index + processing_batch_size]

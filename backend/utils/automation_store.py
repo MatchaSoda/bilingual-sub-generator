@@ -27,6 +27,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from utils import subtitle_fonts
+
 # ---------------------------------------------------------------- 路径
 
 
@@ -198,7 +200,21 @@ STYLE_FIELDS = {
     "outline_sub": (float, 0, 15, 2.0),
     "shadow_sub": (float, 0, 15, 1.5),
 }
-STYLE_DEFAULTS = {key: spec[3] for key, spec in STYLE_FIELDS.items()}
+# 字体只能选 utils/subtitle_fonts.py 里对应语言的（main 是日文原文，sub 是中文译文）；颜色是 #RRGGBB。
+# 缺省值就是以前写死在 ASS 里的：日文白字、中文黄字、黑描边。
+STYLE_FONT_FIELDS = {"font_main": "ja", "font_sub": "zh"}
+STYLE_COLOR_FIELDS = {
+    "color_main": "#FFFFFF",
+    "outline_color_main": "#000000",
+    "color_sub": "#FFFF00",
+    "outline_color_sub": "#000000",
+}
+STYLE_DEFAULTS = {
+    **{key: spec[3] for key, spec in STYLE_FIELDS.items()},
+    **{key: subtitle_fonts.DEFAULT_FONTS[lang] for key, lang in STYLE_FONT_FIELDS.items()},
+    **STYLE_COLOR_FIELDS,
+}
+_HEX_COLOR = re.compile(r"#?([0-9A-Fa-f]{6})")
 
 WHISPER_MODELS = ["large-v3-turbo", "large-v3", "medium", "small", "base", "tiny"]
 GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-3.1-pro-preview",
@@ -314,7 +330,26 @@ def normalize_style(style, errors=None, path="processing.style"):
             value = _as_number(style[key], kind, errors, f"{path}.{key}", lo, hi)
             if value is not None:
                 normalized[key] = value
+    for key, lang in STYLE_FONT_FIELDS.items():
+        if key in style and style[key] is not None:
+            if subtitle_fonts.is_choice(style[key], lang):
+                normalized[key] = style[key]
+            else:
+                errors.append({"path": f"{path}.{key}", "message": "不在可选字体里"})
+    for key in STYLE_COLOR_FIELDS:
+        if key in style and style[key] is not None:
+            color = normalize_color(style[key])
+            if color:
+                normalized[key] = color
+            else:
+                errors.append({"path": f"{path}.{key}", "message": "颜色要写成 #RRGGBB"})
     return normalized
+
+
+def normalize_color(value):
+    """'#ffe16b' / 'FFE16B' → '#FFE16B'；不是 6 位十六进制返回 None。"""
+    match = _HEX_COLOR.fullmatch(value.strip()) if isinstance(value, str) else None
+    return f"#{match.group(1).upper()}" if match else None
 
 
 def normalize_config(raw):

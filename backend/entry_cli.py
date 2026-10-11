@@ -19,9 +19,28 @@ from engines.segment_optimizer import SubtitleSegmentOptimizer
 from engines.llm_segmenter import LLMSubtitleSegmenter
 from config.settings import DOWNLOADS_DIR
 from utils.filenames import truncate_utf8
+from utils import subtitle_fonts
+from utils.automation_store import STYLE_DEFAULTS, normalize_color
 
 def sanitize_for_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "_", name).strip()
+
+def subtitle_color(value):
+    color = normalize_color(value)
+    if not color:
+        raise argparse.ArgumentTypeError(f"expected a #RRGGBB color, got {value!r}")
+    return color
+
+def check_subtitle_fonts(families):
+    """A font fontconfig doesn't know is silently replaced by another one, and the video no longer
+    matches the preview in 视觉实验室. Fail before downloading anything instead."""
+    for family in families:
+        installed = subtitle_fonts.is_installed(family)
+        if "," in family or installed is False:
+            print(f"❌ Subtitle font is not installed: {family!r} (fc-list doesn't know it)", flush=True)
+            sys.exit(2)
+        if installed is None:
+            print(f"⚠️ fontconfig not found, cannot check that the subtitle font {family!r} is installed", flush=True)
 
 def proofread_source_text(subtitle_segments, source_language, media_info, video_title, model_name):
     """--fix-source-text: fix mis-heard words before translating. Never fails the video;
@@ -43,7 +62,7 @@ def proofread_source_text(subtitle_segments, source_language, media_info, video_
     except OSError as write_error:
         print(f"⚠️ Could not save the correction report: {write_error}", flush=True)
 
-def run_subtitle_generation_pipeline():
+def build_argument_parser():
     argument_parser = argparse.ArgumentParser(description="YouTube Bilingual Subtitle Generator")
     argument_parser.add_argument("video_url", help="YouTube video URL")
     argument_parser.add_argument("--target-language", default="zh-CN", help="Target language code")
@@ -72,8 +91,20 @@ def run_subtitle_generation_pipeline():
     argument_parser.add_argument("--font-weight-sub", type=int, default=400)
     argument_parser.add_argument("--outline-sub", type=float, default=2.0)
     argument_parser.add_argument("--shadow-sub", type=float, default=1.5)
-    
-    pipeline_arguments = argument_parser.parse_args()
+
+    # Fonts and colors from 视觉实验室. The main line is the Japanese original (furigana uses its font and colors),
+    # the sub line is the Chinese translation. Defaults equal automation_store.STYLE_DEFAULTS (a test checks).
+    argument_parser.add_argument("--font-main", default=STYLE_DEFAULTS["font_main"], help="Font family of the original line and its furigana")
+    argument_parser.add_argument("--font-sub", default=STYLE_DEFAULTS["font_sub"], help="Font family of the translated line")
+    argument_parser.add_argument("--color-main", type=subtitle_color, default=STYLE_DEFAULTS["color_main"])
+    argument_parser.add_argument("--outline-color-main", type=subtitle_color, default=STYLE_DEFAULTS["outline_color_main"])
+    argument_parser.add_argument("--color-sub", type=subtitle_color, default=STYLE_DEFAULTS["color_sub"])
+    argument_parser.add_argument("--outline-color-sub", type=subtitle_color, default=STYLE_DEFAULTS["outline_color_sub"])
+    return argument_parser
+
+def run_subtitle_generation_pipeline():
+    pipeline_arguments = build_argument_parser().parse_args()
+    check_subtitle_fonts([pipeline_arguments.font_main, pipeline_arguments.font_sub])
 
     print(f"🚀 Starting process for: {pipeline_arguments.video_url}", flush=True)
 
@@ -128,7 +159,7 @@ def run_subtitle_generation_pipeline():
     script_generator = AdvancedSubtitleScriptGenerator()
     video_processor = FFmpegVideoProcessor()
     video_width, video_height = video_processor.extract_video_dimensions(downloaded_media_info['video_path'])
-    
+
     generated_ass_path = DOWNLOADS_DIR / f"{video_title}.ass"
     script_generator.generate_ass_file(
         final_subtitle_segments, 

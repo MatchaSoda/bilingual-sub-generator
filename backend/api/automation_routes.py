@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from config.settings import AUTOMATION_STATE_DIR
 from services.bilibili_account import BilibiliAccount
 from utils import automation_store as store
+from utils import subtitle_fonts
 
 # 接口都写成普通函数：FastAPI 把它们放进线程池跑，查 B 站登录状态、读一堆任务文件时不会卡住别的请求
 automation_router = APIRouter()
@@ -121,6 +122,7 @@ def get_config():
             "segment_modes": store.SEGMENT_MODES,
             "backfill_modes": store.BACKFILL_MODES,
             "upload_lines": store.UPLOAD_LINES,
+            "subtitle_fonts": subtitle_fonts.catalog(),
         },
     }
 

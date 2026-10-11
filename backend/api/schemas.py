@@ -1,5 +1,9 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
+from utils.automation_store import STYLE_COLOR_FIELDS, STYLE_FONT_FIELDS, normalize_style
+
+# 视觉实验室的字体和颜色字段（键名和表单、config.json 的 processing.style 一样）
+STYLE_TEXT_KEYS = [*STYLE_FONT_FIELDS, *STYLE_COLOR_FIELDS]
 
 class SubtitleRequest(BaseModel):
     video_url: str = Field(..., alias="url")
@@ -27,6 +31,25 @@ class SubtitleRequest(BaseModel):
     secondary_font_weight: int = Field(400, alias="font_weight_sub")
     secondary_outline_thickness: float = Field(2.0, alias="outline_sub")
     secondary_shadow_depth: float = Field(1.5, alias="shadow_sub")
+
+    # 不填 = entry_cli 的缺省（automation_store.STYLE_DEFAULTS）
+    font_main: Optional[str] = None
+    font_sub: Optional[str] = None
+    color_main: Optional[str] = None
+    outline_color_main: Optional[str] = None
+    color_sub: Optional[str] = None
+    outline_color_sub: Optional[str] = None
+
+    @model_validator(mode="after")
+    def check_fonts_and_colors(self):
+        """和「设为投稿样式」同一套校验：字体只能选表里对应语言的，颜色统一成 #RRGGBB。"""
+        errors = []
+        style = normalize_style({key: getattr(self, key) for key in STYLE_TEXT_KEYS}, errors, path="style")
+        if errors:
+            raise ValueError("; ".join(f"{error['path']}: {error['message']}" for error in errors))
+        for key, value in style.items():
+            setattr(self, key, value)
+        return self
 
     class Config:
         populate_by_name = True

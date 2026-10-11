@@ -4,6 +4,8 @@ import sys
 import unittest
 from unittest import mock
 
+from pydantic import ValidationError
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from api.schemas import SubtitleRequest
@@ -51,6 +53,22 @@ class TestWebTaskProofreading(unittest.TestCase):
         run_web_task(SubtitleRequest(url="https://www.youtube.com/watch?v=T3VwdAhbbQg",
                                      correction_model="gemini-3.1-pro-preview"))
         self.assertEqual(FakePopen.command[FakePopen.command.index("--correction-model") + 1], "gemini-3.1-pro-preview")
+
+
+class TestWebTaskStyle(unittest.TestCase):
+    def test_fonts_and_colors_reach_entry_cli(self):
+        run_web_task(SubtitleRequest(url="https://www.youtube.com/watch?v=T3VwdAhbbQg",
+                                     font_main="Klee One", color_sub="#ffe16b"))
+        command = FakePopen.command
+        self.assertEqual(command[command.index("--font-main") + 1], "Klee One")
+        self.assertEqual(command[command.index("--color-sub") + 1], "#FFE16B")
+        self.assertNotIn("--font-sub", command)   # 没传的用 entry_cli 的缺省
+
+    def test_wrong_language_font_or_bad_color_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            SubtitleRequest(url="https://www.youtube.com/watch?v=T3VwdAhbbQg", font_main="LXGW WenKai")
+        with self.assertRaises(ValidationError):
+            SubtitleRequest(url="https://www.youtube.com/watch?v=T3VwdAhbbQg", color_main="red")
 
 
 if __name__ == "__main__":

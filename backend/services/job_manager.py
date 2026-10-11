@@ -6,6 +6,7 @@ from pathlib import Path
 from config.settings import BASE_DIR, VENV_PYTHON, HTTP_PROXY, HTTPS_PROXY
 from utils.thumbnail_helper import ensure_thumbnail
 from utils.pipeline_stages import detect_stage
+from api.schemas import STYLE_TEXT_KEYS
 
 class JobExecutionManager:
     def __init__(self):
@@ -51,7 +52,12 @@ class JobExecutionManager:
             "--outline-sub", str(request_parameters.secondary_outline_thickness),
             "--shadow-sub", str(request_parameters.secondary_shadow_depth)
         ]
-        
+        # 字体和颜色：没传的用 entry_cli 的缺省
+        for key in STYLE_TEXT_KEYS:
+            value = getattr(request_parameters, key)
+            if value:
+                cli_command += [f"--{key.replace('_', '-')}", value]
+
         if request_parameters.is_furigana_enabled:
             cli_command.append("--enable-furigana")
         if request_parameters.should_fix_source_text:

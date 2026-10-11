@@ -2,6 +2,23 @@ import datetime
 import re
 from pathlib import Path
 from config.settings import DEFAULT_STYLE
+from utils.automation_store import STYLE_COLOR_FIELDS, normalize_color
+from utils.subtitle_fonts import DEFAULT_FONTS, size_scale
+
+
+def ass_color(rgb, alpha_hex):
+    """'#RRGGBB' + 透明度 'AA' → ASS 的 &HAABBGGRR。"""
+    color = normalize_color(rgb)
+    if not color:
+        raise ValueError(f"Subtitle color must be #RRGGBB, got {rgb!r}")
+    return f"&H{alpha_hex}{color[5:7]}{color[3:5]}{color[1:3]}"
+
+
+def ass_font_size(size, family):
+    """界面上的字号是字面大小，换成 libass 的字号（见 utils/subtitle_fonts.REFERENCE_WIN_RATIO）。思源黑体原样返回。"""
+    scaled = size * size_scale(family)
+    return int(scaled) if scaled == int(scaled) else round(scaled, 2)
+
 
 class AdvancedSubtitleScriptGenerator:
     def __init__(self):
@@ -15,28 +32,33 @@ class AdvancedSubtitleScriptGenerator:
         centiseconds = int((total_seconds - int(total_seconds)) * 100)
         return f"{hours}:{minutes:02d}:{seconds:02d}.{centiseconds:02d}"
 
-    def generate_ass_file(self, subtitle_segments, output_file_path, video_title="Bilingual Subtitles", 
-                         is_furigana_enabled=False, style_settings=None, 
-                         video_width=1920, video_height=1080):
+    def generate_ass_file(self, subtitle_segments, output_file_path, video_title="Bilingual Subtitles",
+                         is_furigana_enabled=False, style_settings=None,
+                         video_width=1920, video_height=1080, furigana_annotator=None):
         from utils.furigana_generator import JapaneseFuriganaGenerator
-        furigana_annotator = JapaneseFuriganaGenerator() if is_furigana_enabled else None
+        if not is_furigana_enabled:
+            furigana_annotator = None
+        elif furigana_annotator is None:
+            furigana_annotator = JapaneseFuriganaGenerator()
 
         active_style = style_settings or DEFAULT_STYLE
-        
+
         script_resolution_y = 1080
         script_resolution_x = int(script_resolution_y * (video_width / video_height))
-        
-        main_font_size = active_style.get('font_size_main', DEFAULT_STYLE['font_size_main'])
-        main_vertical_margin = int((active_style.get('main_bottom', 12.0) / 100) * script_resolution_y)
-        
-        sub_font_size = active_style.get('font_size_sub', DEFAULT_STYLE['font_size_sub'])
-        sub_vertical_margin = int((active_style.get('sub_bottom', 5.0) / 100) * script_resolution_y)
-        
-        furigana_vertical_margin = main_vertical_margin + main_font_size
 
-        ass_header = self._build_ass_header(video_title, script_resolution_x, script_resolution_y, 
-                                           main_font_size, main_vertical_margin, 
-                                           sub_font_size, sub_vertical_margin, 
+        main_font_size = ass_font_size(active_style.get('font_size_main', DEFAULT_STYLE['font_size_main']),
+                                       active_style.get('font_main') or DEFAULT_FONTS['ja'])
+        main_vertical_margin = int((active_style.get('main_bottom', 12.0) / 100) * script_resolution_y)
+
+        sub_font_size = ass_font_size(active_style.get('font_size_sub', DEFAULT_STYLE['font_size_sub']),
+                                      active_style.get('font_sub') or DEFAULT_FONTS['zh'])
+        sub_vertical_margin = int((active_style.get('sub_bottom', 5.0) / 100) * script_resolution_y)
+
+        furigana_vertical_margin = main_vertical_margin + int(round(main_font_size))
+
+        ass_header = self._build_ass_header(video_title, script_resolution_x, script_resolution_y,
+                                           main_font_size, main_vertical_margin,
+                                           sub_font_size, sub_vertical_margin,
                                            furigana_vertical_margin, active_style)
 
         output_path = Path(output_file_path)
@@ -58,6 +80,15 @@ class AdvancedSubtitleScriptGenerator:
         sub_alpha = format(int((1 - style.get('sub_alpha', 100)/100) * 255), '02X')
         sub_outline_alpha = format(int((1 - style.get('outline_sub_alpha', 100)/100) * 255), '02X')
 
+        # 振假名跟着日文原文的字体和颜色
+        main_font = style.get('font_main') or DEFAULT_FONTS['ja']
+        sub_font = style.get('font_sub') or DEFAULT_FONTS['zh']
+        colors = {key: style.get(key) or default for key, default in STYLE_COLOR_FIELDS.items()}
+        main_primary = ass_color(colors['color_main'], main_alpha)
+        main_outline = ass_color(colors['outline_color_main'], main_outline_alpha)
+        sub_primary = ass_color(colors['color_sub'], sub_alpha)
+        sub_outline = ass_color(colors['outline_color_sub'], sub_outline_alpha)
+
         return f"""[Script Info]
 Title: {title}
 Script Type: v4.00+
@@ -67,9 +98,9 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Main,Noto Sans CJK JP,{main_fs},&H{main_alpha}FFFFFF,&H000000FF,&H{main_outline_alpha}000000,&H90000000,{main_weight},0,0,0,100,100,0,0,1,{style.get('outline_main', 3.0)},{style.get('shadow_main', 1.5)},2,10,10,{main_vm},1
-Style: Sub,Noto Sans CJK SC,{sub_fs},&H{sub_alpha}00FFFF,&H000000FF,&H{sub_outline_alpha}000000,&H90000000,{sub_weight},0,0,0,100,100,0,0,1,{style.get('outline_sub', 2.0)},{style.get('shadow_sub', 1.2)},2,10,10,{sub_vm},1
-Style: Furigana,Noto Sans CJK JP,{main_fs},&H{main_alpha}FFFFFF,&H000000FF,&H{main_outline_alpha}000000,&H90000000,{main_weight},0,0,0,100,100,0,0,1,1.5,1,2,10,10,{furi_vm},1
+Style: Main,{main_font},{main_fs},{main_primary},&H000000FF,{main_outline},&H90000000,{main_weight},0,0,0,100,100,0,0,1,{style.get('outline_main', 3.0)},{style.get('shadow_main', 1.5)},2,10,10,{main_vm},1
+Style: Sub,{sub_font},{sub_fs},{sub_primary},&H000000FF,{sub_outline},&H90000000,{sub_weight},0,0,0,100,100,0,0,1,{style.get('outline_sub', 2.0)},{style.get('shadow_sub', 1.2)},2,10,10,{sub_vm},1
+Style: Furigana,{main_font},{main_fs},{main_primary},&H000000FF,{main_outline},&H90000000,{main_weight},0,0,0,100,100,0,0,1,1.5,1,2,10,10,{furi_vm},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

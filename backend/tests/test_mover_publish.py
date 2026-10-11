@@ -197,6 +197,14 @@ class CliCommandTests(unittest.TestCase):
             cmd = mover.build_cli_command("https://y", Path("/o.mp4"), {"style": {"font_weight": "bold"}})
         self.assertNotIn("--font-weight", cmd)
 
+    def test_fonts_and_colors_become_entry_cli_flags(self):
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            cmd = mover.build_cli_command("https://y", Path("/o.mp4"), {"style": {
+                "font_main": "Klee One", "color_sub": "#ffe16b", "font_sub": "Comic Sans MS"}})
+        self.assertEqual(cmd[cmd.index("--font-main") + 1], "Klee One")
+        self.assertEqual(cmd[cmd.index("--color-sub") + 1], "#FFE16B")
+        self.assertNotIn("--font-sub", cmd)   # 不在可选字体里：丢掉，用缺省字体
+
 
 class DefaultsTests(unittest.TestCase):
     """界面显示的「当前生效值」（automation_store.DEFAULTS）必须就是 mover 真正用的值。"""
@@ -214,6 +222,12 @@ class DefaultsTests(unittest.TestCase):
         effective = store.effective_config({})["processing"]
         self.assertEqual(mover.build_cli_command("u", Path("/o.mp4"), {}),
                          mover.build_cli_command("u", Path("/o.mp4"), effective))
+
+    def test_entry_cli_style_defaults_are_the_stores(self):
+        # 界面「默认样式」和不传样式参数时 entry_cli 实际用的值必须是同一套
+        from entry_cli import build_argument_parser
+        args = vars(build_argument_parser().parse_args(["https://y"]))
+        self.assertEqual({key: args[key] for key in store.STYLE_DEFAULTS}, store.STYLE_DEFAULTS)
 
 
 class BvidTests(unittest.TestCase):

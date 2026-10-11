@@ -134,6 +134,32 @@ class NormalizeConfigTests(unittest.TestCase):
         _, errors = store.normalize_config({"processing": {"style": {"font_weight": 950}}})
         self.assertEqual([e["path"] for e in errors], ["processing.style.font_weight"])
 
+    def test_style_fonts_must_fit_their_language(self):
+        config, errors = store.normalize_config({"processing": {"style": {
+            "font_main": "Klee One", "font_sub": "LXGW WenKai"}}})
+        self.assertEqual(errors, [])
+        self.assertEqual(config["processing"]["style"], {"font_main": "Klee One", "font_sub": "LXGW WenKai"})
+        # 中文字体给日文行、日文字体给中文行，或者表外的字体，都不收
+        _, errors = store.normalize_config({"processing": {"style": {"font_main": "LXGW WenKai", "font_sub": "Klee One"}}})
+        self.assertEqual(sorted(e["path"] for e in errors), ["processing.style.font_main", "processing.style.font_sub"])
+        _, errors = store.normalize_config({"processing": {"style": {"font_main": "Arial"}}})
+        self.assertEqual([e["path"] for e in errors], ["processing.style.font_main"])
+
+    def test_style_colors_are_normalized(self):
+        config, errors = store.normalize_config({"processing": {"style": {
+            "color_main": "#ffe16b", "outline_color_sub": " 1f3a93 "}}})
+        self.assertEqual(errors, [])
+        self.assertEqual(config["processing"]["style"], {"color_main": "#FFE16B", "outline_color_sub": "#1F3A93"})
+        _, errors = store.normalize_config({"processing": {"style": {"color_sub": "yellow", "color_main": "#FFF"}}})
+        self.assertEqual(sorted(e["path"] for e in errors), ["processing.style.color_main", "processing.style.color_sub"])
+
+    def test_style_defaults_are_the_old_hardcoded_look(self):
+        text_keys = [*store.STYLE_FONT_FIELDS, *store.STYLE_COLOR_FIELDS]
+        self.assertEqual({key: store.STYLE_DEFAULTS[key] for key in text_keys}, {
+            "font_main": "Noto Sans CJK JP", "font_sub": "Noto Sans CJK SC",
+            "color_main": "#FFFFFF", "outline_color_main": "#000000",
+            "color_sub": "#FFFF00", "outline_color_sub": "#000000"})
+
 
 class EffectiveConfigTests(unittest.TestCase):
     def test_missing_sections_use_code_defaults(self):

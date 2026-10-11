@@ -2,6 +2,7 @@ import unittest
 import sys
 import os
 import re
+import tempfile
 
 # Ensure the backend directory is in the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -90,6 +91,41 @@ class TestAdvancedSubtitleScriptGenerator(unittest.TestCase):
             scale = int(match.group(1))
             # 默认 scale 是 45，由于假名太长，这里应该比 45 小
             self.assertLess(scale, 45)
+
+
+class TestAssStyles(unittest.TestCase):
+    """样式头里的字体、颜色、字号。缺省样式必须和加字体 / 颜色之前逐字一致：线上视频的样子不能变。"""
+
+    def styles(self, style=None):
+        from utils.automation_store import STYLE_DEFAULTS
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "x.ass")
+            AdvancedSubtitleScriptGenerator().generate_ass_file(
+                [], path, style_settings={**STYLE_DEFAULTS, **(style or {})})
+            with open(path, encoding="utf-8") as ass_file:
+                lines = ass_file.read().splitlines()
+        return {line.split(",")[0][len("Style: "):]: line for line in lines if line.startswith("Style: ")}
+
+    def test_default_style_is_byte_identical_to_before(self):
+        # 改动前的镜像对同样的缺省参数生成的三行（10-11 从生产镜像里取的）
+        self.assertEqual(self.styles(), {
+            "Main": "Style: Main,Noto Sans CJK JP,90,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,1,0,0,0,100,100,0,0,1,3.0,1.5,2,10,10,7,1",
+            "Sub": "Style: Sub,Noto Sans CJK SC,75,&H0000FFFF,&H000000FF,&H00000000,&H90000000,0,0,0,0,100,100,0,0,1,2.0,1.5,2,10,10,994,1",
+            "Furigana": "Style: Furigana,Noto Sans CJK JP,90,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,1,0,0,0,100,100,0,0,1,1.5,1,2,10,10,97,1",
+        })
+
+    def test_fonts_colors_and_size_scaling(self):
+        styles = self.styles({"font_main": "BIZ UDGothic", "font_sub": "LXGW WenKai", "font_alpha": 50,
+                              "color_main": "#FFE16B", "outline_color_main": "#1F3A93", "color_sub": "#FFFFFF"})
+        main = styles["Main"].split(",")
+        # BIZ UDゴシック的 win ratio 是 1.0，同样字号 90 字面比思源黑体大 45%，所以 ASS 里写 90 / 1.448
+        self.assertEqual(main[1:6], ["BIZ UDGothic", "62.15", "&H7F6BE1FF", "&H000000FF", "&H00933A1F"])
+        furigana = styles["Furigana"].split(",")
+        self.assertEqual(furigana[1:3], ["BIZ UDGothic", "62.15"])   # 振假名跟着日文的字体和颜色
+        self.assertEqual(furigana[3], main[3])
+        self.assertEqual(furigana[-2], str(7 + 62))                  # 振假名在日文行上方一个行高
+        sub = styles["Sub"].split(",")
+        self.assertEqual(sub[1:4], ["LXGW WenKai", "68.21", "&H00FFFFFF"])
 
 if __name__ == "__main__":
     unittest.main()

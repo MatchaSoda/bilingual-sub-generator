@@ -573,7 +573,8 @@ cat /proc/<pid>/net/tcp | awk '$4=="01"'             # ESTABLISHED 却零流量 
 
 开着「AI 原文纠错」时，断句之后、翻译之前多一步（`engines/source_corrector.py`，界面上的「纠错」阶段）：
 整片字幕连同 YouTube 标题、简介一次交给 Gemini（超过 400 行才拆），模型只回 `{行号, 错词, 正确词, 读音}`，
-代码逐条核对通过才改原文。模型固定用 `gemini-3.5-flash`，和界面上选的翻译模型无关。之后的翻译请求只翻译。
+代码逐条核对通过才改原文。模型默认 `gemini-3.5-flash`，和翻译模型分开选：「系统设置 › 纠错引擎」管「仅生成」，
+「自动搬运 › 处理与投稿 › 纠错模型」（`processing.correction_model`）管自动搬运和「生成并投稿」。之后的翻译请求只翻译。
 
 **为什么从翻译里拆出来（10-11）**：以前是翻译时顺带改（`corrected_source` 字段），每批 100 行各管各的。
 模型一边写中文一边重写日文原文：简体字混进日文（国際 → 国际、千葉 → 千叶），按自己的知识换人名（标题写着
@@ -619,7 +620,7 @@ cat /proc/<pid>/net/tcp | awk '$4=="01"'             # ESTABLISHED 却零流量 
 **不挡投稿**：Gemini 连不上时打一行 `⚠️ ASR correction failed, translating the recognized text as is`，照常翻译。
 非日语视频直接跳过。`.translated.json` 存在时纠错和翻译都跳过，想重跑先删它。
 
-**调规则或换模型之前先回放**：
+**调规则或换模型之前先回放**（换模型用 `--model`）：
 
 ```bash
 docker compose run --rm -T setup bash -c '/app/venv/bin/python3 /app/scripts/replay_asr_correction.py --out /app/data/replay.json'

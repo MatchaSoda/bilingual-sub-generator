@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 所有 Python 命令都用仓库内的 venv，**不要用系统 python3**（依赖只装在 venv 里）：
 
 ```bash
-# 测试（246 个用例，unittest，约 3 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
+# 测试（251 个用例，unittest，约 3 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
 bash run_tests.sh
 # Docker 机上的等价写法（测试需要一个占位 key）
 docker compose run --rm -T -e GOOGLE_API_KEYS=x setup bash -c 'cd /app/backend && /app/venv/bin/python3 -m unittest discover -s tests -p "test_*.py"'

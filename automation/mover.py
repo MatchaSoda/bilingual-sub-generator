@@ -667,6 +667,9 @@ def publish_video(video_id, video_url, video_title, config, processing=None, ful
     cli_cmd = build_cli_command(video_url, target_video_path, processing)
 
     print(f"执行命令: {' '.join(cli_cmd)}")
+    if job_id:
+        # 任务面板据此决定进度条里有没有「纠错」这一步
+        store.update_job(PATHS, job_id, proofread="--fix-source-text" in cli_cmd)
     set_stage("download", job_id)
 
     # 使用 Popen 来实时获取输出

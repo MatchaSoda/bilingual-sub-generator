@@ -249,6 +249,16 @@ class RunJobTests(PublishTestCase):
         self.assertEqual(args[args.index("--tag") + 1], "自定义")
         self.assertEqual(store.find_upload(self.paths, "T3VwdAhbbQg")["origin"], "manual")
 
+    def test_job_records_whether_the_pipeline_proofreads(self):
+        # 任务面板据此决定进度条里有没有「纠错」这一步
+        for fix_source_text in (False, True):
+            self.config["processing"] = {"fix_source_text": fix_source_text}
+            store.save_config(self.paths, self.config)
+            job = store.create_job(self.paths, "https://www.youtube.com/watch?v=T3VwdAhbbQg", "T3VwdAhbbQg")
+            with mock.patch.object(mover, "fetch_id_and_title", return_value=("T3VwdAhbbQg", "日本語")):
+                mover.run_pending_jobs(set())
+            self.assertIs(store.load_job(self.paths, job["id"])["proofread"], fix_source_text)
+
     def test_job_log_gets_the_output(self):
         mover.TEE = mover.LogTee(io.StringIO(), self.paths.log)
         self.addCleanup(mover.TEE.close)

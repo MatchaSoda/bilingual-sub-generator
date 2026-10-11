@@ -25,6 +25,8 @@ class JobExecutionManager:
 
     def execute_subtitle_generation_job(self, job_id, request_parameters):
         self.active_jobs[job_id]["status"] = "processing"
+        # 任务面板据此决定进度条里有没有「纠错」这一步
+        self.active_jobs[job_id]["proofread"] = bool(request_parameters.should_fix_source_text)
         
         python_interpreter = str(VENV_PYTHON) if VENV_PYTHON.exists() else "python3"
         

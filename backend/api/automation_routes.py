@@ -251,6 +251,7 @@ def job_status_payload(job_id, log_lines=500):
         "kind": "publish",
         "status": JOB_STATUS_FOR_UI.get(job.get("status"), job.get("status")),
         "stage": job.get("stage"),
+        "proofread": bool(job.get("proofread")),
         "logs": store.tail_text(store.job_log_path(PATHS, job_id), max_lines=log_lines),
         "result": job.get("result"),
         "error": job.get("error"),

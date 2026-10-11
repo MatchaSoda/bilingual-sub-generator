@@ -616,6 +616,11 @@ def fetch_id_and_title(video_url):
                 pass
 
 
+def proofreads(processing):
+    """这套处理参数开没开「AI 原文纠错」（决定命令行带不带 --fix-source-text，以及进度条里有没有「纠错」）。"""
+    return bool((processing or {}).get("fix_source_text", DEFAULT_PROCESSING["fix_source_text"]))
+
+
 def build_cli_command(video_url, target_video_path, processing=None):
     """config.json 的 processing 段 → entry_cli.py 的命令行。缺省值等同旧行为。"""
     proc = processing or {}
@@ -631,7 +636,7 @@ def build_cli_command(video_url, target_video_path, processing=None):
         cli_cmd.append("--enable-furigana")
     if proc.get("translate_title", DEFAULT_PROCESSING["translate_title"]):
         cli_cmd.append("--translate-title")
-    if proc.get("fix_source_text", DEFAULT_PROCESSING["fix_source_text"]):
+    if proofreads(proc):
         cli_cmd += ["--fix-source-text",
                     "--correction-model", proc.get("correction_model", DEFAULT_PROCESSING["correction_model"])]
     # 字幕样式（视觉实验室「设为投稿样式」写进来的）。没有就用 entry_cli 的缺省样式，和以前一样。
@@ -839,6 +844,8 @@ def run_job(job, history):
             raise RuntimeError("config.json 读取失败，看 mover 日志")
         options = job.get('options') or {}
         profile = resolve_channel_profile(config, options)
+        # 进度条一开始就画对步数；等到 publish_video 再写，下载那一段（拿标题最长 120 秒）会少画「纠错」
+        store.update_job(PATHS, job_id, proofread=proofreads(config.get('processing', {})))
         current = {"kind": "manual", "job_id": job_id, "video_id": job['video_id'], "title": None,
                    "channel": profile.get('name'), "stage": "download", "started_at": started_at}
         report(phase="processing", current=current)

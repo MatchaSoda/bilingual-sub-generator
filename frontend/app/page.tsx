@@ -181,7 +181,10 @@ export default function Home() {
       localStorage.setItem('last_task_id', res.data.task_id);
       setActiveTab('logs');
     } catch (e) {
+      // 后端会拒绝不合法的字体 / 颜色（422），比如浏览器里存的旧表单值，原因要让人看到
       setStatus('failed');
+      setLogs((prev) => [...prev, `❌ 提交失败：${errorMessage(e)}`]);
+      alert(`提交失败：${errorMessage(e)}`);
     }
   };
 

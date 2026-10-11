@@ -19,7 +19,9 @@ import MovieIcon from '@mui/icons-material/Movie';
 import SendIcon from '@mui/icons-material/Send';
 
 import { AccountStatus, automationApi, AutomationConfigResponse, AutomationStatus, PublishRequest } from '../../src/api';
-import { filledFieldSx, pickStyle, sameStyle, sameStyleValue, STYLE_KEYS } from '../../src/automation';
+import {
+  filledFieldSx, pickStyle, rememberAutomationTab, sameStyle, sameStyleValue, STYLE_KEYS,
+} from '../../src/automation';
 import { describeMover } from './automation/StatusCard';
 
 export type TaskMode = 'generate' | 'publish';
@@ -237,7 +239,12 @@ const TaskPanel = ({
           }}
         />
 
-        {summary && <ProcessingChips summary={summary} onSettings={() => onNavigate(publish ? 'automation' : 'settings')} />}
+        {summary && (
+          <ProcessingChips summary={summary} onSettings={() => {
+            if (publish) rememberAutomationTab('processing');  // 投稿的处理参数在「自动搬运 › 处理与投稿」
+            onNavigate(publish ? 'automation' : 'settings');
+          }} />
+        )}
 
         {publish && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

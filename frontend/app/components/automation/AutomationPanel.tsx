@@ -19,7 +19,7 @@ import {
   automationApi, AutomationConfig, AutomationConfigResponse, AutomationEvent, AutomationStatus, errorMessage,
   FieldError, PublishJob, UploadRecord,
 } from '../../../src/api';
-import { syncServerTime } from '../../../src/automation';
+import { AUTOMATION_TAB_KEY, syncServerTime } from '../../../src/automation';
 import StatusCard from './StatusCard';
 import AccountCard from './AccountCard';
 import JobList from './JobList';
@@ -40,7 +40,7 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 const CONFIG_TABS: TabKey[] = ['channels', 'rules', 'processing'];
-const TAB_KEY = 'automation-tab';
+const TAB_KEY = AUTOMATION_TAB_KEY;
 
 // 校验错误的字段路径 → 它在哪个标签页
 const tabForError = (path: string): TabKey => {

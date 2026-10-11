@@ -69,6 +69,16 @@ export const WHISPER_LABELS: Record<string, string> = {
   tiny: 'Tiny（最快，错得最多）',
 };
 
+// 「自动搬运」页记住上次打开的子页面；别的页面要直接跳到某个子页面就先写这里
+export const AUTOMATION_TAB_KEY = 'automation-tab';
+export const rememberAutomationTab = (tab: string) => {
+  try {
+    localStorage.setItem(AUTOMATION_TAB_KEY, tab);
+  } catch {
+    // 隐私模式写不了，就停在上次的子页面
+  }
+};
+
 export const AI_CORRECTION_DESCRIPTION =
   '翻译前单独校一遍全片：对照标题和简介改语音识别的错字。读音对不上的不改，标题、简介里出现的写法放宽要求';
 

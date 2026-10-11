@@ -17,7 +17,9 @@ import UploadIcon from '@mui/icons-material/CloudUpload';
 import ImportIcon from '@mui/icons-material/Input';
 
 import { AutomationConfig, AutomationConfigResponse } from '../../../src/api';
-import { cardSx, filledFieldSx, pickStyle, sameStyle, sameStyleValue, STYLE_KEYS } from '../../../src/automation';
+import {
+  AI_CORRECTION_DESCRIPTION, cardSx, filledFieldSx, pickStyle, sameStyle, sameStyleValue, STYLE_KEYS, WHISPER_LABELS,
+} from '../../../src/automation';
 import { NumberField, SectionTitle, SwitchRow, TextInput } from './fields';
 
 const STYLE_LABELS: Record<string, string> = {
@@ -27,11 +29,6 @@ const STYLE_LABELS: Record<string, string> = {
   font_weight_sub: '译文字重', outline_sub: '译文描边', shadow_sub: '译文阴影',
   font_main: '原文字体', color_main: '原文颜色', outline_color_main: '原文描边颜色',
   font_sub: '译文字体', color_sub: '译文颜色', outline_color_sub: '译文描边颜色',
-};
-
-const WHISPER_LABELS: Record<string, string> = {
-  'large-v3-turbo': 'Large-V3-Turbo（推荐）', 'large-v3': 'Large-V3（日语易缺标点）', medium: 'Medium',
-  small: 'Small（快，错得多）', base: 'Base', tiny: 'Tiny',
 };
 
 interface ProcessingFormProps {
@@ -145,7 +142,7 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
                 <TextField {...params} InputProps={{ ...params.InputProps, disableUnderline: true }}
                   variant="filled" label="纠错模型（AI 原文纠错）" sx={filledFieldSx}
                   error={!!errors['processing.correction_model']}
-                  helperText={errors['processing.correction_model'] || '推荐 3.5 Flash：回放里改错最少（RUNBOOK §5.12）'} />
+                  helperText={errors['processing.correction_model'] || '推荐 3.5 Flash：回放里比 3.1 Flash Lite 改错少（RUNBOOK §5.12）'} />
               )}
             />
           </Grid>
@@ -169,7 +166,7 @@ const ProcessingForm = ({ draft, meta, errors, webForm, onChange }: ProcessingFo
                 onChange={(v) => setProcessing('enable_furigana', v)} />
               <SwitchRow label="翻译视频标题" description="B 站标题和成品文件名用中文" checked={processing.translate_title}
                 onChange={(v) => setProcessing('translate_title', v)} />
-              <SwitchRow label="AI 原文纠错" description="翻译前单独校一遍全片：对照标题和简介改语音识别的错字，读音对不上的不改" checked={processing.fix_source_text}
+              <SwitchRow label="AI 原文纠错" description={AI_CORRECTION_DESCRIPTION} checked={processing.fix_source_text}
                 onChange={(v) => setProcessing('fix_source_text', v)} />
             </Stack>
           </Grid>

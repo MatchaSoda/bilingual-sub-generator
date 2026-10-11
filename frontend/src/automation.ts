@@ -58,6 +58,20 @@ export const JOB_STATUS_LABELS: Record<string, string> = {
   cancelled: '已取消',
 };
 
+// 「系统设置」和「自动搬运」两个设置页共用。10-11 同一条新闻实测（容器 CPU）：large-v3 217 秒、turbo 82 秒，
+// large-v3 还认出了 turbo 整段漏掉的一段；两个都常常不出标点，所以这里不拿标点比（RUNBOOK §5.14）
+export const WHISPER_LABELS: Record<string, string> = {
+  'large-v3-turbo': 'Large-V3-Turbo（默认，速度快）',
+  'large-v3': 'Large-V3（最准，比 Turbo 慢 2～3 倍）',
+  medium: 'Medium',
+  small: 'Small（快，错得多）',
+  base: 'Base',
+  tiny: 'Tiny（最快，错得最多）',
+};
+
+export const AI_CORRECTION_DESCRIPTION =
+  '翻译前单独校一遍全片：对照标题和简介改语音识别的错字。读音对不上的不改，标题、简介里出现的写法放宽要求';
+
 export const bilibiliVideoUrl = (bvid: string) => `https://www.bilibili.com/video/${bvid}`;
 export const youtubeVideoUrl = (videoId: string) => `https://www.youtube.com/watch?v=${videoId}`;
 

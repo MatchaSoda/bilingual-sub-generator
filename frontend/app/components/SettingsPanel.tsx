@@ -22,6 +22,7 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
 import { configApi } from '../../src/api';
+import { AI_CORRECTION_DESCRIPTION, WHISPER_LABELS } from '../../src/automation';
 
 interface SettingsPanelProps {
   form: any;
@@ -189,7 +190,7 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Box>
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>AI 原文纠错</Typography>
-                <Typography variant="caption" color="text.secondary">翻译前单独校一遍全片：对照标题和简介改语音识别的错字，读音对不上的不改</Typography>
+                <Typography variant="caption" color="text.secondary">{AI_CORRECTION_DESCRIPTION}</Typography>
               </Box>
               <Switch 
                 checked={form.fix_source} 
@@ -226,11 +227,9 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
                   fontWeight: 700
                 }}
               >
-                <MenuItem value="tiny">Tiny (极致速度)</MenuItem>
-                <MenuItem value="small">Small (性能平衡)</MenuItem>
-                <MenuItem value="medium">Medium (高精准度)</MenuItem>
-                <MenuItem value="large-v3-turbo">Large-V3-Turbo (推荐·快且标点完整)</MenuItem>
-                <MenuItem value="large-v3">Large-V3 (最高品质·日语易缺标点)</MenuItem>
+                {['tiny', 'small', 'medium', 'large-v3-turbo', 'large-v3'].map((m) => (
+                  <MenuItem key={m} value={m}>{WHISPER_LABELS[m]}</MenuItem>
+                ))}
               </Select>
             </FormControl>
 
@@ -247,9 +246,11 @@ const SettingsPanel = ({ form, setForm }: SettingsPanelProps) => {
                   fontWeight: 700
                 }}
               >
-                <MenuItem value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (轻量默认)</MenuItem>
+                {/* 「默认」跟着 page.tsx 的 DEFAULT_FORM.translation_model 走 */}
+                <MenuItem value="gemini-3-flash-preview">Gemini 3 Flash (默认)</MenuItem>
+                <MenuItem value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (轻量)</MenuItem>
+                <MenuItem value="gemini-3.5-flash">Gemini 3.5 Flash</MenuItem>
                 <MenuItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro (旗舰级推理)</MenuItem>
-                <MenuItem value="gemini-3-flash-preview">Gemini 3 Flash (极速响应)</MenuItem>
                 <MenuItem value="gemini-2.5-flash">Gemini 2.5 Flash (稳定版)</MenuItem>
               </Select>
             </FormControl>

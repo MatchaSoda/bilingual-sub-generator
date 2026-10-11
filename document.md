@@ -35,9 +35,10 @@
 - **媒体下载 (`media_downloader.py`)**: 封装 `yt-dlp`，支持自动提取最佳音视频流及相关元数据。
 - **语音识别 (`transcription_engine.py`)**: 调用 Whisper 模型，支持从 `tiny` 到 `large-v3` 的多种规格，具备自动语言检测功能。
 - **分段优化 (`segment_optimizer.py`)**: 针对 Whisper 的原始输出进行断句优化和切分，确保字幕长度符合视觉习惯。
+- **原文纠错 (`source_corrector.py`)**: `fix_source` 开着时在翻译之前单独跑一次：整片字幕连同标题、简介交给 Gemini，
+  模型只提「错词 → 正确词」，代码按读音、标题 / 简介、人名和数字逐条核对后才改（规则和回放数据见 RUNBOOK §5.12）。
 - **字幕翻译 (`subtitle_translator.py`)**:
-  - 批量处理字幕段落以提高效率。
-  - 支持 `fix_source` 模式，利用 AI 修正 ASR 识别错误，并输出高质量的双语结果。
+  - 批量处理字幕段落以提高效率，只翻译、不改原文。
 - **字幕生成 (`subtitle_generator.py`)**:
   - 生成 ASS 格式字幕，支持三层渲染（主字幕、副字幕、日语振假名）。
   - 支持自定义字体大小、透明度、边框、阴影和垂直位置。

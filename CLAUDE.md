@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 所有 Python 命令都用仓库内的 venv，**不要用系统 python3**（依赖只装在 venv 里）：
 
 ```bash
-# 测试（198 个用例，unittest，约 3 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
+# 测试（246 个用例，unittest，约 3 秒；config/keys.py 导入期要求 GOOGLE_API_KEYS 非空）
 bash run_tests.sh
 # Docker 机上的等价写法（测试需要一个占位 key）
 docker compose run --rm -T -e GOOGLE_API_KEYS=x setup bash -c 'cd /app/backend && /app/venv/bin/python3 -m unittest discover -s tests -p "test_*.py"'
@@ -83,6 +83,7 @@ Docker 部署：`./docker-start.sh`（首次进向导；改了 `userdata/.env` �
 entry_cli.py  ──►  media_downloader (yt-dlp)
                    → transcription_engine (faster-whisper)
                    → segment_optimizer | llm_segmenter   ← 二选一
+                   → source_corrector (Gemini)            ← 开了「AI 原文纠错」才有（RUNBOOK §5.12）
                    → subtitle_translator (Gemini)
                    → subtitle_generator (ASS)
                    → video_processor (ffmpeg 硬压制)
@@ -110,7 +111,7 @@ Web 进程不投稿、不写 history。「自动搬运」页读写的配置、�
 
 ### 中间产物有缓存，会跳过重算
 
-`data/downloads/` 下按视频标题存放 `.asr.json`（转写）和 `.translated.json`（翻译）。**只要文件存在就直接复用，不会重跑**。调试翻译逻辑时如果发现改了没效果，先删对应的 `.translated.json`。
+`data/downloads/` 下按视频标题存放 `.asr.json`（转写）和 `.translated.json`（纠错 + 翻译）。**只要文件存在就直接复用，不会重跑**。调试纠错或翻译逻辑时如果发现改了没效果，先删对应的 `.translated.json`。`.corrections.json` 是纠错的核对记录，只给人看，不当缓存用。
 
 ### 两种分段模式
 

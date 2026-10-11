@@ -208,7 +208,7 @@ mover 每轮开头删一次「超过 `keep_days` 天没动过」的文件。缺�
 
 | 目录 | 删什么 | 留什么 |
 |---|---|---|
-| `data/downloads` | 下载的视频、音频、`.asr.json` / `.translated.json` / `.ass` 缓存、封面原图 | `*_bilingual.mp4` / `.jpg`：Web 界面做的成品，媒体库显示的就是这些 |
+| `data/downloads` | 下载的视频、音频、`.asr.json` / `.translated.json` / `.corrections.json` / `.ass` 缓存、封面原图 | `*_bilingual.mp4` / `.jpg`：Web 界面做的成品，媒体库显示的就是这些 |
 | 产出目录（裸机 `automation/data`，Docker `userdata/data`） | 搬运的成品和封面，已经投到 B 站 | 无 |
 
 - 只看目录下一层的普通文件，不递归、不碰子目录。`userdata/` 根下的 key、cookie、history 不在范围内。
@@ -568,6 +568,70 @@ cat /proc/<pid>/net/tcp | awk '$4=="01"'             # ESTABLISHED 却零流量 
 
 现在的做法：`services/bilibili_account.py` 另起一个子进程（`services/bilibili_qr_login.py`）做扫码，按行把二维码和结果传回来；
 关弹窗或重新生成二维码会杀掉旧进程。以后在 Web 进程里用 stream_gears 的任何函数，都要先确认它会不会长时间持有 GIL。
+
+### 5.12 AI 原文纠错（`--fix-source-text`）改了什么、为什么没改
+
+开着「AI 原文纠错」时，断句之后、翻译之前多一步（`engines/source_corrector.py`，界面上的「纠错」阶段）：
+整片字幕连同 YouTube 标题、简介一次交给 Gemini（超过 400 行才拆），模型只回 `{行号, 错词, 正确词, 读音}`，
+代码逐条核对通过才改原文。模型固定用 `gemini-3.5-flash`，和界面上选的翻译模型无关。之后的翻译请求只翻译。
+
+**为什么从翻译里拆出来（10-11）**：以前是翻译时顺带改（`corrected_source` 字段），每批 100 行各管各的。
+模型一边写中文一边重写日文原文：简体字混进日文（国際 → 国际、千葉 → 千叶），按自己的知识换人名（标题写着
+硤合，字幕成了左右手 / 曾根 / 曽我 / 真鍋；岡本代表成了斉藤代表），还把别的行的内容并进来。
+
+回放 54 条缓存视频（2763 行，逐行人工判定，`scripts/replay_asr_correction.py`）：
+
+| | 改动行数 | 改对 | 改错 | 无害改写 | 判断不了 |
+|---|---|---|---|---|---|
+| 旧：翻译时顺带 | 214 | 129 | 47 | 21 | 17 |
+| 新：单独一步（3.5-flash） | 228 | 218 | 0 | 7 | 3 |
+
+两边都改对的 101 行；只有旧版改对的 28 行，多数是模型这次没提（那珂川、品薄），少数被下面的规则拦了
+（新宿行為 → 新宿御苑 连变四个音、禁断 → 危害、玉城 → 玉木 和 諭吉 不在标题 / 简介里）。同一份回放用
+`gemini-3.1-flash-lite` 做纠错：改错 6 行，主要是把标题里的人名套到读音相近的观众名字上。耗时中位数 3.5-flash
+13.5 秒 / 视频（最长 35 秒），lite 1.8 秒。
+
+**核对规则**（拒绝原因写在日志和 `.corrections.json` 里）：
+
+| 原因 | 拦什么 | 回放里的例子 |
+|---|---|---|
+| `insertion_or_deletion` | 一边包含另一边：加字删字，不是听错 | 5%から → 5%旧マルハニチロが5%から |
+| `reference_has_original` | 标题 / 简介写的就是原文 | 岡本 → 斉藤（标题「公明･岡本代表」） |
+| `number_changed` | 数字变了，汉字数字也算 | 台風25号 → 台風15号 |
+| `name_not_in_reference` | 引入标题 / 简介里没有的人名（两字以上） | 玉城 → 玉木、曽藍 → 曾根 |
+| `same_word` | 同一个词换写法（假名 / 汉字 / 全半角） | 肛門癌 → 肛門がん、うぐい → ウグイ |
+| `unreadable` | 正确词里有 MeCab 读不出的字，又不在标题 / 简介里 | 国際 → 国际 |
+| `sound_mismatch` | 读音不够像 | 合憲 → 違憲（0.5）、千葉豪雨 → 能登豪雨（0.6） |
+| `too_many_sounds_changed` | 连着变了三个音以上 | 内毛 → 市原市、ウミオス → 水産 |
+| `not_in_line` / `ambiguous_in_line` | 错词不在那一行，或太短、在行里出现不止一次 | |
+
+读音相似度 = 1 − 编辑距离 / 较长读音的长度，用 MeCab 的发音（コーセー）比。一般要 ≥ 0.55；引入标题 / 简介里没有的
+地名、机构名要 ≥ 0.75；正确词的写法在标题 / 简介里出现过要 ≥ 0.34（人名 ≥ 0.65），MeCab 读不出的（硤合）
+用模型给的读音比。MeCab 第一候选以外的读法（月代竹 读成 ツキヨタケ）要 ≥ 0.85。三个字以上的错词在别的行原样出现，
+也一起改（日志里标 carried）。
+
+**看它改了什么**：
+- 日志（`mover.log`、Web 任务日志）：`🩹 ASR correction: N fixes applied (M carried ...), K rejected`，下面每条
+  `✓ [行号] 错 → 对` 或 `✗ [行号] 错 → 对 (原因)`。
+- `data/downloads/<标题>.corrections.json`：每条的读音、相似度、原因（跟着 §4 一起清理）。
+- `.translated.json` 里改过的行多一个 `asr_text`，是改之前的识别结果。
+
+**不挡投稿**：Gemini 连不上时打一行 `⚠️ ASR correction failed, translating the recognized text as is`，照常翻译。
+非日语视频直接跳过。`.translated.json` 存在时纠错和翻译都跳过，想重跑先删它。
+
+**调规则或换模型之前先回放**：
+
+```bash
+docker compose run --rm -T setup bash -c '/app/venv/bin/python3 /app/scripts/replay_asr_correction.py --out /app/data/replay.json'
+# 只改了核对规则：拿上一次存下的模型提议重判，不调 Gemini
+docker compose run --rm -T setup bash -c '/app/venv/bin/python3 /app/scripts/replay_asr_correction.py --from /app/data/replay.json --out /app/data/replay2.json'
+```
+
+脚本打印每行的 ASR / 缓存里的结果 / 回放结果，对错要人看。标题取自文件名、默认不带简介（生产带），
+结果会比上表稍差；`--descriptions` 可以补上。缓存只留 7 天，样本就是最近一周的视频。
+
+读音对得上、意思不对的拦不住（金を → 菌を、禁断 → 近隣，lite 回放里出现过）。模型对近期的事知道得少
+（字幕原话是「旧マルハニチロ ウミオス」，也就是改名后的公司名，lite 想把它改成「水産」），所以标题和简介比模型的知识优先。
 
 ---
 

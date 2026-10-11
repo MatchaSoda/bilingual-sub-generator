@@ -17,7 +17,7 @@ class FakeGeminiTranslator(GeminiSubtitleTranslator):
         self.scripted_responses = list(scripted_responses)
         self.prompts_seen = []
 
-    def _call_gemini_api_with_retry(self, api_key, prompt, response_schema=None, sampling_temperature=0.0, attempt=0):
+    def _call_gemini_api_with_retry(self, api_key, prompt, response_schema=None, attempt=0):
         self.prompts_seen.append(prompt)
         return self.scripted_responses.pop(0)
 
@@ -96,6 +96,20 @@ class TestTranslateTitleFixupRound(unittest.TestCase):
 
 def _json_lines(count, prefix="t"):
     return json.dumps([{"index": i, "translation": f"{prefix}{i}"} for i in range(count)])
+
+
+class TestTranslationOnly(unittest.TestCase):
+    def test_translation_never_rewrites_the_source_text(self):
+        # ASR errors are fixed by engines/source_corrector.py before translation. A
+        # "corrected_source" the model volunteers anyway must not reach the subtitles.
+        segments = [{"text": "厚生取引委員会が"}]
+        translator = FakeGeminiTranslator([json.dumps([
+            {"index": 0, "translation": "公平交易委员会", "corrected_source": "公正取引委員会が"},
+        ])])
+        translator.translate_batch_of_subtitle_segments(segments, "ja")
+        self.assertEqual(segments[0]["text"], "厚生取引委員会が")
+        self.assertEqual(segments[0]["translated_text"], "公平交易委员会")
+        self.assertNotIn("corrected_source", translator.prompts_seen[0])
 
 
 class TestBatchSplitOnCountMismatch(unittest.TestCase):

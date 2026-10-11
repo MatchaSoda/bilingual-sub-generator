@@ -41,30 +41,24 @@ class GeminiSubtitleTranslator:
         self.target_language = target_language_code
         self.model_name = ai_model_identifier or MODEL_NAME
         
-    def translate_batch_of_subtitle_segments(self, subtitle_segments: List[Dict], 
-                                            source_language: str, 
-                                            should_fix_source_errors: bool = False) -> List[Dict]:
-        
+    def translate_batch_of_subtitle_segments(self, subtitle_segments: List[Dict],
+                                            source_language: str) -> List[Dict]:
+        # ASR errors are fixed before this, in a separate pass (engines/source_corrector.py);
+        # this request only translates.
         print(f"🤖 Requesting Gemini AI ({self.model_name}) for {len(subtitle_segments)} segments...", flush=True)
-        
+
         numbered_text_to_translate = "\n".join([f"[{index}] {segment['text']}" for index, segment in enumerate(subtitle_segments)])
-        translation_prompt = self._construct_translation_prompt(source_language, should_fix_source_errors, numbered_text_to_translate)
-        response_schema = self._build_translation_response_schema(should_fix_source_errors)
-        # Pure translation wants faithful, deterministic output (temp=0). ASR error
-        # detection needs the model willing to alter the source, which temp=0 is too
-        # conservative for — empirically ~0.3 maximizes error recall while staying in
-        # the recommended low-temp translation range.
-        sampling_temperature = 0.3 if should_fix_source_errors else 0.0
+        translation_prompt = self._construct_translation_prompt(source_language, numbered_text_to_translate)
+        response_schema = self._build_translation_response_schema()
 
         maximum_api_retries = 6
         for attempt_number in range(maximum_api_retries):
             api_key = key_manager.get_next_available_api_key()
             try:
                 raw_ai_response_text = self._call_gemini_api_with_retry(
-                    api_key, translation_prompt, response_schema=response_schema,
-                    sampling_temperature=sampling_temperature, attempt=attempt_number
+                    api_key, translation_prompt, response_schema=response_schema, attempt=attempt_number
                 )
-                self._parse_and_apply_translations(subtitle_segments, raw_ai_response_text, should_fix_source_errors)
+                self._parse_and_apply_translations(subtitle_segments, raw_ai_response_text)
                 return subtitle_segments
 
             except TranslationCountMismatch as mismatch_error:
@@ -76,9 +70,7 @@ class GeminiSubtitleTranslator:
                     print(f"⚠️ {mismatch_error} Splitting the batch in half and retrying...", flush=True)
                     half = len(subtitle_segments) // 2
                     for sub_batch in (subtitle_segments[:half], subtitle_segments[half:]):
-                        self.translate_batch_of_subtitle_segments(
-                            sub_batch, source_language, should_fix_source_errors
-                        )
+                        self.translate_batch_of_subtitle_segments(sub_batch, source_language)
                     return subtitle_segments
                 if attempt_number == maximum_api_retries - 1:
                     self._handle_final_failure(mismatch_error)
@@ -170,17 +162,7 @@ class GeminiSubtitleTranslator:
         first_line = next((line.strip() for line in raw_text.splitlines() if line.strip()), "")
         return first_line.strip('"').strip("'").strip()
 
-    def _construct_translation_prompt(self, source_lang, fix_source, text_content):
-        instruction_for_fixing = (
-            f'6. ASR correction: the {source_lang} text is speech-recognition output and may contain homophone mis-recognitions '
-            '(a word replaced by a same-sounding wrong word, e.g. a name or katakana term written as unrelated kanji). '
-            f'For any line with such an error, add a "corrected_source" field holding the corrected {source_lang} text, and base the translation on that corrected reading. '
-            'IMPORTANT: apply corrections consistently — if a word is mis-recognized, correct it on EVERY line where it appears, not only the first. '
-            'For lines that are already correct, OMIT the "corrected_source" field entirely (do not echo the source).'
-            if fix_source else
-            '6. Do not include any field other than "index" and "translation".'
-        )
-
+    def _construct_translation_prompt(self, source_lang, text_content):
         return f"""You are a professional translator specializing in video subtitles.
 Your task is to translate the following {source_lang} subtitles into {self.target_language}.
 
@@ -193,45 +175,37 @@ Requirements:
 3. Do not combine, split, skip, reorder, or add lines. Each object's "index" MUST equal the [index] of the line it translates.
 4. Translate each line independently even if a sentence spans multiple lines; never move content between lines.
 5. If the content is for language learning, ensure the translation is natural and accurate.
-{instruction_for_fixing}
+6. Do not include any field other than "index" and "translation".
 
 Subtitles:
 {text_content}
 """
 
-    def _build_translation_response_schema(self, fix_source):
-        object_properties = {
-            "index": protos.Schema(type=protos.Type.INTEGER),
-            "translation": protos.Schema(type=protos.Type.STRING),
-        }
-        required_fields = ["index", "translation"]
-        if fix_source:
-            # Optional (not required): the model omits it for correct lines,
-            # so only genuinely mis-recognized lines cost extra output tokens.
-            object_properties["corrected_source"] = protos.Schema(type=protos.Type.STRING)
-
+    def _build_translation_response_schema(self):
         return protos.Schema(
             type=protos.Type.ARRAY,
             items=protos.Schema(
                 type=protos.Type.OBJECT,
-                properties=object_properties,
-                required=required_fields,
+                properties={
+                    "index": protos.Schema(type=protos.Type.INTEGER),
+                    "translation": protos.Schema(type=protos.Type.STRING),
+                },
+                required=["index", "translation"],
             ),
         )
 
-    def _call_gemini_api_with_retry(self, api_key, prompt, response_schema=None, sampling_temperature=0.0, attempt=0):
+    def _call_gemini_api_with_retry(self, api_key, prompt, response_schema=None, attempt=0):
         genai.configure(api_key=api_key, transport='rest')
         generative_model = genai.GenerativeModel(self.model_name)
 
         generation_config = None
         if response_schema is not None:
-            # Low temperature keeps translation faithful/stable and curbs the model's
-            # tendency to merge or reword lines. Caller raises it slightly (~0.3) only
-            # when ASR error-correction is on, where temp=0 detects too few errors.
+            # Temperature 0 keeps translation faithful and stable, and curbs the
+            # model's tendency to merge or reword lines.
             generation_config = genai.types.GenerationConfig(
                 response_mime_type="application/json",
                 response_schema=response_schema,
-                temperature=sampling_temperature,
+                temperature=0.0,
             )
 
         with gemini_network_route(attempt):
@@ -242,7 +216,7 @@ Subtitles:
             )
         return response.text.strip()
 
-    def _parse_and_apply_translations(self, segments, raw_response_text, fix_source):
+    def _parse_and_apply_translations(self, segments, raw_response_text):
         try:
             parsed_response = json.loads(raw_response_text)
         except json.JSONDecodeError as decode_error:
@@ -252,14 +226,10 @@ Subtitles:
             raise ValueError("Gemini translation output was not a JSON array.")
 
         translation_results = {}
-        source_correction_results = {}
         for item in parsed_response:
             if not isinstance(item, dict) or "index" not in item or "translation" not in item:
                 raise ValueError("Gemini translation item missing 'index' or 'translation'.")
-            segment_index = int(item["index"])
-            translation_results[segment_index] = str(item["translation"]).strip()
-            if fix_source and item.get("corrected_source"):
-                source_correction_results[segment_index] = str(item["corrected_source"]).strip()
+            translation_results[int(item["index"])] = str(item["translation"]).strip()
 
         expected_indices = set(range(len(segments)))
         missing_indices = expected_indices - translation_results.keys()
@@ -271,8 +241,6 @@ Subtitles:
 
         for index, segment in enumerate(segments):
             segment['translated_text'] = translation_results[index]
-            if fix_source and index in source_correction_results:
-                segment['text'] = source_correction_results[index]
 
     def _perform_exponential_backoff(self, attempt, error):
         seconds_to_wait = 2 ** (attempt + 1)

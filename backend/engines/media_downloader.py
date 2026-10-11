@@ -65,6 +65,8 @@ class YouTubeMediaDownloader:
                     "title": video_title,
                     # 文件名里的标题可能被截断过，翻译 / 投稿标题要用这个完整原标题
                     "original_title": extracted_metadata.get("title") or video_title,
+                    # 原文纠错拿标题和简介当人名、术语的参考（engines/source_corrector.py）
+                    "description": extracted_metadata.get("description") or "",
                     "video_path": str(video_file_path),
                     "audio_path": str(audio_file_path)
                 }

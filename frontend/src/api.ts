@@ -48,6 +48,43 @@ export const configApi = {
 
 export default api;
 
+// ---------------------------------------------------------------- 视觉实验室（backend/api/subtitle_routes.py）
+
+// 字幕样式：数字滑块 + 字体（字族名）+ 颜色（#RRGGBB），和 config.json 的 processing.style 同一个格式
+export type SubtitleStyle = Record<string, number | string>;
+
+export interface SubtitleFont {
+  family: string;          // 写进 ASS 的字族名
+  lang: 'ja' | 'zh';       // ja 给日文原文（和振假名），zh 给中文译文
+  label: string;
+  note: string;
+  installed: boolean | null; // null = 服务器上没有 fontconfig，不知道
+}
+
+export interface SubtitleFontsResponse {
+  fonts: SubtitleFont[];
+  style_defaults: SubtitleStyle;
+  sample_text: { main: string; sub: string };
+  max_text_length: number;
+}
+
+export type PreviewBackground = 'dark' | 'light' | 'video';
+
+export interface PreviewRequest {
+  style: SubtitleStyle;
+  background: PreviewBackground;
+  furigana: boolean;
+  main_text?: string | null;
+  sub_text?: string | null;
+}
+
+export const subtitleApi = {
+  fonts: (): Promise<AxiosResponse<SubtitleFontsResponse>> => api.get('/subtitle/fonts'),
+  // 服务器用压制成片的同一套代码渲染一帧 1920x1080 的 PNG；第一次要加载字体，多给点时间
+  preview: (request: PreviewRequest): Promise<AxiosResponse<Blob>> =>
+    api.post('/subtitle/preview', request, { responseType: 'blob', timeout: 60000 }),
+};
+
 // ---------------------------------------------------------------- 自动搬运（backend/api/automation_routes.py）
 // Web 不直接投稿：任务写进 userdata/jobs/，由 mover 按顺序执行，和频道扫描排同一条队列。
 
@@ -156,7 +193,7 @@ export interface AutomationConfig {
     translate_title: boolean;
     fix_source_text: boolean;
     correction_model: string;
-    style: Record<string, number>;
+    style: SubtitleStyle;
   };
   upload: {
     line: string | null;
@@ -176,7 +213,7 @@ export interface AutomationConfigResponse {
   config: Partial<AutomationConfig>;
   effective: AutomationConfig;
   channel_defaults: ChannelConfig;
-  style_defaults: Record<string, number>;
+  style_defaults: SubtitleStyle;
   style_fields: Record<string, { type: 'int' | 'float'; min: number; max: number }>;
   options: {
     whisper_models: string[];
@@ -184,6 +221,7 @@ export interface AutomationConfigResponse {
     segment_modes: string[];
     backfill_modes: string[];
     upload_lines: string[];
+    subtitle_fonts: SubtitleFont[];
   };
 }
 
@@ -254,7 +292,7 @@ export const automationApi = {
   getConfig: (): Promise<AxiosResponse<AutomationConfigResponse>> => api.get('/automation/config'),
   saveConfig: (config: AutomationConfig, version: string): Promise<AxiosResponse<any>> =>
     api.put('/automation/config', { config, version }),
-  saveStyle: (style: Record<string, number> | null): Promise<AxiosResponse<any>> =>
+  saveStyle: (style: SubtitleStyle | null): Promise<AxiosResponse<any>> =>
     api.put('/automation/style', { style }),
   events: (limit = 100): Promise<AxiosResponse<{ server_time: number; events: AutomationEvent[] }>> =>
     api.get('/automation/events', { params: { limit } }),

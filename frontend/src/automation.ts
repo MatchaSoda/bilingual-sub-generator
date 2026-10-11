@@ -1,5 +1,7 @@
 // 自动搬运相关的显示文字和时间格式，几个面板共用。
 
+import type { SubtitleStyle } from './api';
+
 // 和 backend/utils/pipeline_stages.py 的 STAGES 对应；proofread 只有开了「AI 原文纠错」才有，upload 只有投稿任务才有
 export const PIPELINE_STAGES: { key: string; label: string }[] = [
   { key: 'download', label: '下载' },
@@ -118,19 +120,31 @@ export const filledFieldSx = {
 };
 
 // 视觉实验室表单里属于字幕样式的字段（和 backend/utils/automation_store.py 的 STYLE_FIELDS 一致）
-export const STYLE_KEYS = [
+export const STYLE_NUMBER_KEYS = [
   'font_size_main', 'main_bottom', 'font_alpha', 'outline_alpha', 'font_weight', 'outline_main', 'shadow_main',
   'font_size_sub', 'sub_bottom', 'sub_alpha', 'outline_sub_alpha', 'font_weight_sub', 'outline_sub', 'shadow_sub',
 ];
+// 字体（fontconfig 的字族名）和颜色（#RRGGBB），对应 STYLE_FONT_FIELDS / STYLE_COLOR_FIELDS。main 是日文原文，sub 是中文译文
+export const STYLE_TEXT_KEYS = ['font_main', 'font_sub', 'color_main', 'outline_color_main', 'color_sub', 'outline_color_sub'];
+export const STYLE_KEYS = [...STYLE_NUMBER_KEYS, ...STYLE_TEXT_KEYS];
 
-export const pickStyle = (form: Record<string, any>): Record<string, number> => {
-  const style: Record<string, number> = {};
-  STYLE_KEYS.forEach((key) => {
+export const pickStyle = (form: Record<string, any>): SubtitleStyle => {
+  const style: SubtitleStyle = {};
+  STYLE_NUMBER_KEYS.forEach((key) => {
     const value = Number(form[key]);
     if (form[key] !== undefined && form[key] !== '' && Number.isFinite(value)) style[key] = value;
+  });
+  STYLE_TEXT_KEYS.forEach((key) => {
+    if (typeof form[key] === 'string' && form[key].trim()) style[key] = form[key].trim();
   });
   return style;
 };
 
-export const sameStyle = (a: Record<string, number>, b: Record<string, number>): boolean =>
-  STYLE_KEYS.every((key) => Number(a[key]) === Number(b[key]));
+// 数字按数值比（90 和 90.0 一样），字体和颜色按文字比，颜色不分大小写
+export const sameStyleValue = (key: string, a: unknown, b: unknown): boolean =>
+  STYLE_TEXT_KEYS.includes(key)
+    ? String(a ?? '').toUpperCase() === String(b ?? '').toUpperCase()
+    : Number(a) === Number(b);
+
+export const sameStyle = (a: SubtitleStyle, b: SubtitleStyle): boolean =>
+  STYLE_KEYS.every((key) => sameStyleValue(key, a[key], b[key]));

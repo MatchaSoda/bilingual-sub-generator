@@ -62,6 +62,13 @@ const DEFAULT_FORM = {
   font_weight_sub: 400,
   outline_sub: 2.0,
   shadow_sub: 1.5,
+  // 字体和颜色：缺省就是以前写死的样子（和 automation_store.STYLE_DEFAULTS 一致）。新键靠下面的展开拿到缺省值，不用升 FORM_VERSION
+  font_main: 'Noto Sans CJK JP',
+  font_sub: 'Noto Sans CJK SC',
+  color_main: '#FFFFFF',
+  outline_color_main: '#000000',
+  color_sub: '#FFFF00',
+  outline_color_sub: '#000000',
 };
 
 export default function Home() {

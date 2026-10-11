@@ -159,6 +159,7 @@ def run_subtitle_generation_pipeline():
     script_generator = AdvancedSubtitleScriptGenerator()
     video_processor = FFmpegVideoProcessor()
     video_width, video_height = video_processor.extract_video_dimensions(downloaded_media_info['video_path'])
+    video_matrix = video_processor.extract_color_matrix(downloaded_media_info['video_path'])
 
     generated_ass_path = DOWNLOADS_DIR / f"{video_title}.ass"
     script_generator.generate_ass_file(
@@ -168,7 +169,8 @@ def run_subtitle_generation_pipeline():
         is_furigana_enabled=pipeline_arguments.enable_furigana,
         style_settings=vars(pipeline_arguments),
         video_width=video_width,
-        video_height=video_height
+        video_height=video_height,
+        video_matrix=video_matrix
     )
 
     output_filename_base = video_title

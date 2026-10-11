@@ -6,12 +6,40 @@ from utils.automation_store import STYLE_COLOR_FIELDS, normalize_color
 from utils.subtitle_fonts import DEFAULT_FONTS, size_scale
 
 
-def ass_color(rgb, alpha_hex):
-    """'#RRGGBB' + 透明度 'AA' → ASS 的 &HAABBGGRR。"""
+# 播放器把成片转回 RGB 用的 YUV 矩阵 → (Kr, Kb)。ffmpeg 5.1 的 subtitles 滤镜不看视频标的矩阵，一律按 BT.601
+# 把字幕颜色换成 YUV；YouTube 的高清源和成片都标 BT.709，播放器按 709 解，#FFFF00 就显示成 (255, 240, 0)。
+YUV_MATRICES = {"bt601": (0.299, 0.114), "bt709": (0.2126, 0.0722), "bt2020": (0.2627, 0.0593)}
+
+
+def _rgb_to_yuv(rgb, matrix):
+    kr, kb = YUV_MATRICES[matrix]
+    r, g, b = (channel / 255 for channel in rgb)
+    y = kr * r + (1 - kr - kb) * g + kb * b
+    return y, (b - y) / (2 * (1 - kb)), (r - y) / (2 * (1 - kr))
+
+
+def _yuv_to_rgb(yuv, matrix):
+    kr, kb = YUV_MATRICES[matrix]
+    y, u, v = yuv
+    r = y + 2 * (1 - kr) * v
+    b = y + 2 * (1 - kb) * u
+    g = (y - kr * r - kb * b) / (1 - kr - kb)
+    return tuple(max(0, min(255, round(channel * 255))) for channel in (r, g, b))
+
+
+def ass_color(rgb, alpha_hex, video_matrix=None):
+    """'#RRGGBB' + 透明度 'AA' → ASS 的 &HAABBGGRR。
+
+    video_matrix 是播放器解码成片用的矩阵。不是 BT.601 时先反算一遍，让 ffmpeg 按 601 换出来的 YUV 正好是想要的颜色在
+    这个矩阵下的 YUV。纯黄、纯红这种超出范围的颜色只能补一部分。"""
     color = normalize_color(rgb)
     if not color:
         raise ValueError(f"Subtitle color must be #RRGGBB, got {rgb!r}")
-    return f"&H{alpha_hex}{color[5:7]}{color[3:5]}{color[1:3]}"
+    channels = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+    if video_matrix in YUV_MATRICES and video_matrix != "bt601":
+        channels = _yuv_to_rgb(_rgb_to_yuv(channels, video_matrix), "bt601")
+    red, green, blue = channels
+    return f"&H{alpha_hex}{blue:02X}{green:02X}{red:02X}"
 
 
 def ass_font_size(size, family):
@@ -34,7 +62,7 @@ class AdvancedSubtitleScriptGenerator:
 
     def generate_ass_file(self, subtitle_segments, output_file_path, video_title="Bilingual Subtitles",
                          is_furigana_enabled=False, style_settings=None,
-                         video_width=1920, video_height=1080, furigana_annotator=None):
+                         video_width=1920, video_height=1080, furigana_annotator=None, video_matrix=None):
         from utils.furigana_generator import JapaneseFuriganaGenerator
         if not is_furigana_enabled:
             furigana_annotator = None
@@ -59,7 +87,7 @@ class AdvancedSubtitleScriptGenerator:
         ass_header = self._build_ass_header(video_title, script_resolution_x, script_resolution_y,
                                            main_font_size, main_vertical_margin,
                                            sub_font_size, sub_vertical_margin,
-                                           furigana_vertical_margin, active_style)
+                                           furigana_vertical_margin, active_style, video_matrix)
 
         output_path = Path(output_file_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,7 +99,7 @@ class AdvancedSubtitleScriptGenerator:
 
         return str(output_path)
 
-    def _build_ass_header(self, title, res_x, res_y, main_fs, main_vm, sub_fs, sub_vm, furi_vm, style):
+    def _build_ass_header(self, title, res_x, res_y, main_fs, main_vm, sub_fs, sub_vm, furi_vm, style, video_matrix=None):
         main_weight = 1 if style.get('font_weight', 700) > 500 else 0
         main_alpha = format(int((1 - style.get('font_alpha', 100)/100) * 255), '02X')
         main_outline_alpha = format(int((1 - style.get('outline_alpha', 100)/100) * 255), '02X')
@@ -84,10 +112,10 @@ class AdvancedSubtitleScriptGenerator:
         main_font = style.get('font_main') or DEFAULT_FONTS['ja']
         sub_font = style.get('font_sub') or DEFAULT_FONTS['zh']
         colors = {key: style.get(key) or default for key, default in STYLE_COLOR_FIELDS.items()}
-        main_primary = ass_color(colors['color_main'], main_alpha)
-        main_outline = ass_color(colors['outline_color_main'], main_outline_alpha)
-        sub_primary = ass_color(colors['color_sub'], sub_alpha)
-        sub_outline = ass_color(colors['outline_color_sub'], sub_outline_alpha)
+        main_primary = ass_color(colors['color_main'], main_alpha, video_matrix)
+        main_outline = ass_color(colors['outline_color_main'], main_outline_alpha, video_matrix)
+        sub_primary = ass_color(colors['color_sub'], sub_alpha, video_matrix)
+        sub_outline = ass_color(colors['outline_color_sub'], sub_outline_alpha, video_matrix)
 
         return f"""[Script Info]
 Title: {title}

@@ -93,15 +93,27 @@ class TestAdvancedSubtitleScriptGenerator(unittest.TestCase):
             self.assertLess(scale, 45)
 
 
+def _displayed_color(ass):
+    """ffmpeg 5.1 的 subtitles 滤镜把 ASS 颜色按 BT.601（limited range）换成 8 位 YUV，播放器按 BT.709 解回 RGB。"""
+    bgr = ass[4:]
+    r, g, b = (int(bgr[i:i + 2], 16) / 255 for i in (4, 2, 0))
+    y = 0.299 * r + 0.587 * g + 0.114 * b
+    yuv = [round(16 + 219 * y), round(128 + 224 * (b - y) / 1.772), round(128 + 224 * (r - y) / 1.402)]
+    y, u, v = (yuv[0] - 16) / 219, (yuv[1] - 128) / 224, (yuv[2] - 128) / 224
+    r, b = y + 1.5748 * v, y + 1.8556 * u
+    g = (y - 0.2126 * r - 0.0722 * b) / 0.7152
+    return tuple(max(0, min(255, round(c * 255))) for c in (r, g, b))
+
+
 class TestAssStyles(unittest.TestCase):
     """样式头里的字体、颜色、字号。缺省样式必须和加字体 / 颜色之前逐字一致：线上视频的样子不能变。"""
 
-    def styles(self, style=None):
+    def styles(self, style=None, video_matrix=None):
         from utils.automation_store import STYLE_DEFAULTS
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "x.ass")
             AdvancedSubtitleScriptGenerator().generate_ass_file(
-                [], path, style_settings={**STYLE_DEFAULTS, **(style or {})})
+                [], path, style_settings={**STYLE_DEFAULTS, **(style or {})}, video_matrix=video_matrix)
             with open(path, encoding="utf-8") as ass_file:
                 lines = ass_file.read().splitlines()
         return {line.split(",")[0][len("Style: "):]: line for line in lines if line.startswith("Style: ")}
@@ -126,6 +138,28 @@ class TestAssStyles(unittest.TestCase):
         self.assertEqual(furigana[-2], str(7 + 62))                  # 振假名在日文行上方一个行高
         sub = styles["Sub"].split(",")
         self.assertEqual(sub[1:4], ["LXGW WenKai", "68.21", "&H00FFFFFF"])
+
+    def test_bt709_compensation_shows_the_chosen_color(self):
+        from engines.subtitle_generator import ass_color
+        for rgb in [(255, 225, 107), (128, 208, 255), (255, 182, 200), (31, 58, 147), (182, 242, 193)]:
+            wanted = "#%02X%02X%02X" % rgb
+            shown = _displayed_color(ass_color(wanted, "00", "bt709"))
+            self.assertTrue(all(abs(a - b) <= 1 for a, b in zip(shown, rgb)), f"{wanted} shown as {shown}")
+            # 不补偿时明显偏
+            self.assertTrue(any(abs(a - b) > 3 for a, b in zip(_displayed_color(ass_color(wanted, "00")), rgb)))
+        # 黑白不用补；BT.601 的片子不补
+        self.assertEqual(ass_color("#FFFFFF", "00", "bt709"), "&H00FFFFFF")
+        self.assertEqual(ass_color("#000000", "80", "bt709"), "&H80000000")
+        self.assertEqual(ass_color("#FFE16B", "00", "bt601"), ass_color("#FFE16B", "00"))
+        with self.assertRaises(ValueError):
+            ass_color("yellow", "00")
+
+    def test_default_yellow_barely_moves_with_compensation(self):
+        # 纯黄超出范围，补偿前后显示出来都是 (255, 240±1, 0)：线上中文字幕的颜色实际上不变
+        plain = self.styles()["Sub"].split(",")[3]
+        compensated = self.styles(video_matrix="bt709")["Sub"].split(",")[3]
+        self.assertEqual(_displayed_color(plain), (255, 240, 0))
+        self.assertEqual(_displayed_color(compensated), (255, 241, 1))
 
 if __name__ == "__main__":
     unittest.main()

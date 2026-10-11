@@ -19,6 +19,24 @@ class FFmpegVideoProcessor:
         
         return video_width, video_height
 
+    def extract_color_matrix(self, video_file_path):
+        """播放器把这个视频（和用它压出来的成片，ffmpeg 会沿用色彩标记）转回 RGB 用的矩阵：bt709 / bt601 / bt2020。
+        没标的按播放器的惯例，720p 及以上当 709。字幕颜色据此补偿（subtitle_generator.ass_color）。"""
+        ffprobe_command = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=height,color_space", "-of", "json", str(video_file_path)
+        ]
+        execution_result = subprocess.run(ffprobe_command, capture_output=True, text=True)
+        stream = json.loads(execution_result.stdout)['streams'][0]
+        color_space = stream.get('color_space', '')
+        if color_space == 'bt709':
+            return 'bt709'
+        if color_space in ('bt470bg', 'smpte170m'):
+            return 'bt601'
+        if color_space.startswith('bt2020'):
+            return 'bt2020'
+        return 'bt709' if int(stream.get('height', 0)) >= 720 else 'bt601'
+
     def hardcode_subtitles_into_video(self, source_video_path, subtitle_ass_path, target_output_path):
         absolute_subtitle_path = str(Path(subtitle_ass_path).absolute())
         

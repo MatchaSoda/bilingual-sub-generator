@@ -357,6 +357,42 @@ class ScanTests(PublishTestCase):
         self.assertEqual(stats["skipped"]["description_failed"], 1)
         self.assertEqual(store.read_events(self.paths)[0]["reason"], "description_failed")
 
+    def test_failing_video_is_given_up_after_max_attempts(self):
+        calls = []
+
+        def failing_publish(video_id, *args, **kwargs):
+            calls.append(video_id)
+            return {"ok": False, "stage": "cli", "bvid": None, "error": "CLI 失败 (Code -9)"}
+
+        history = set()
+        with mock.patch.object(mover, "get_video_list", return_value=self.videos()[:1]), \
+                mock.patch.object(mover, "publish_video", side_effect=failing_publish), \
+                mock.patch.object(mover, "run_pending_jobs"):
+            for _ in range(store.MAX_AUTO_ATTEMPTS + 2):
+                mover.scan_channels(self.config, history, cutoff=None)
+        self.assertEqual(len(calls), store.MAX_AUTO_ATTEMPTS)
+        self.assertIn("aaaaaaaaaaa", history)
+        gave_up = [e for e in store.read_events(self.paths) if e.get("reason") == "gave_up"]
+        self.assertEqual(len(gave_up), 1)
+        self.assertEqual(gave_up[0]["attempts"], store.MAX_AUTO_ATTEMPTS)
+        self.assertEqual(store.read_json(self.paths.failures), {})
+
+    def test_success_resets_the_failure_count(self):
+        results = iter([False, True])
+
+        def flaky_publish(video_id, *args, **kwargs):
+            return {"ok": next(results), "stage": "cli", "bvid": None, "error": "x"}
+
+        history = set()
+        with mock.patch.object(mover, "get_video_list", return_value=self.videos()[:1]), \
+                mock.patch.object(mover, "publish_video", side_effect=flaky_publish), \
+                mock.patch.object(mover, "run_pending_jobs"):
+            mover.scan_channels(self.config, history, cutoff=None)
+            self.assertEqual(store.read_json(self.paths.failures), {"aaaaaaaaaaa": 1})
+            mover.scan_channels(self.config, history, cutoff=None)
+        self.assertEqual(store.read_json(self.paths.failures), {})
+        self.assertIn("aaaaaaaaaaa", history)
+
     def test_no_channels_is_fine(self):
         stats = mover.scan_channels({}, set(), cutoff=None)
         self.assertEqual(stats["channels"], 0)

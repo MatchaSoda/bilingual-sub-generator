@@ -48,6 +48,7 @@ class Paths:
         self.config_lock = self.runtime / "config.lock"
         self.uploads_lock = self.runtime / "uploads.lock"
         self.jobs_lock = self.runtime / "jobs.lock"
+        self.failures = self.runtime / "failures.json"
 
 
 # ---------------------------------------------------------------- 文件小工具
@@ -789,7 +790,25 @@ def trim_events(paths, max_bytes=EVENTS_MAX_BYTES):
     os.replace(tmp_path, paths.events)
 
 
-SKIP_REASONS = ("keyword", "exclude", "cutoff", "description_failed")
+SKIP_REASONS = ("keyword", "exclude", "cutoff", "description_failed", "gave_up")
+
+# 自动搬运同一个视频最多试几次。失败不写 history 会让它每轮都排在最前面重试、占掉本轮配额，
+# 一个必败的视频就能把整个频道卡住（10-13 起被 OOM 卡了 5 天，RUNBOOK §5.15）。
+MAX_AUTO_ATTEMPTS = 3
+
+
+def record_failure(paths, video_id):
+    """记一次自动搬运失败，返回这个视频累计失败了几次。只有 mover 一个进程写，不用加锁。"""
+    failures = read_json(paths.failures, {}) or {}
+    failures[video_id] = int(failures.get(video_id, 0)) + 1
+    write_json_atomic(paths.failures, failures)
+    return failures[video_id]
+
+
+def clear_failure(paths, video_id):
+    failures = read_json(paths.failures, {}) or {}
+    if failures.pop(video_id, None) is not None:
+        write_json_atomic(paths.failures, failures)
 
 
 def find_skip(paths, video_id):

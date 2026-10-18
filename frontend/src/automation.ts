@@ -42,6 +42,7 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   exclude: '命中排除词',
   cutoff: '早于起点',
   description_failed: '拉简介失败',
+  gave_up: '多次失败已放弃',
 };
 
 export const ORIGIN_LABELS: Record<string, string> = {

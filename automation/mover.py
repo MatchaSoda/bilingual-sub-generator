@@ -996,8 +996,15 @@ def scan_channels(config, history, cutoff):
                     stats["uploaded"] += 1
                     history.add(entry['id'])
                     save_history(history)
+                    store.clear_failure(PATHS, entry['id'])
                 else:
                     stats["failed"] += 1
+                    attempts = store.record_failure(PATHS, entry['id'])
+                    if attempts >= store.MAX_AUTO_ATTEMPTS:
+                        # 写进 history 不再重试，免得它每轮占掉配额；要补投用 backfill.py 或 Web 投稿
+                        skip(entry, "gave_up", f"🛑 已失败 {attempts} 次，不再自动重试: {entry['title']}",
+                             attempts=attempts, error=result.get("error"))
+                        store.clear_failure(PATHS, entry['id'])
                 # 两个视频之间插空处理 Web 提交的投稿，用户最多等一个视频
                 run_pending_jobs(history)
                 report(phase="scanning", current={"kind": "scan", "channel": channel.get('name'),

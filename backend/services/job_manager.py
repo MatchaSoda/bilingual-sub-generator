@@ -6,6 +6,7 @@ from pathlib import Path
 from config.settings import BASE_DIR, VENV_PYTHON, HTTP_PROXY, HTTPS_PROXY
 from utils.thumbnail_helper import ensure_thumbnail
 from utils.pipeline_stages import detect_stage
+from utils.child_tmp import child_tmp_env
 from api.schemas import STYLE_TEXT_KEYS
 
 class JobExecutionManager:
@@ -75,28 +76,30 @@ class JobExecutionManager:
         execution_environment["PYTHONPATH"] = str(BASE_DIR / "backend")
         
         try:
-            subprocess_instance = subprocess.Popen(
-                cli_command, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
-                text=True, 
-                env=execution_environment, 
-                bufsize=1, 
-                cwd=str(BASE_DIR / "backend")
-            )
+            # PO Token 插件的 Chromium profile 落在独立 TMPDIR，结束后整个删掉（RUNBOOK §5.15）
+            with child_tmp_env(execution_environment) as child_environment:
+                subprocess_instance = subprocess.Popen(
+                    cli_command, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.STDOUT, 
+                    text=True, 
+                    env=child_environment, 
+                    bufsize=1, 
+                    cwd=str(BASE_DIR / "backend")
+                )
             
-            for log_line in iter(subprocess_instance.stdout.readline, ""):
-                stripped_line = log_line.strip()
-                self.active_jobs[job_id]["logs"].append(stripped_line)
-                # 和自动搬运同一张阶段表（utils/pipeline_stages.py），任务面板据此画分阶段进度
-                stage = detect_stage(stripped_line)
-                if stage:
-                    self.active_jobs[job_id]["stage"] = stage
+                for log_line in iter(subprocess_instance.stdout.readline, ""):
+                    stripped_line = log_line.strip()
+                    self.active_jobs[job_id]["logs"].append(stripped_line)
+                    # 和自动搬运同一张阶段表（utils/pipeline_stages.py），任务面板据此画分阶段进度
+                    stage = detect_stage(stripped_line)
+                    if stage:
+                        self.active_jobs[job_id]["stage"] = stage
 
-                if "Final video:" in stripped_line: 
-                    self.active_jobs[job_id]["result"] = stripped_line.split("Final video:")[1].strip()
+                    if "Final video:" in stripped_line: 
+                        self.active_jobs[job_id]["result"] = stripped_line.split("Final video:")[1].strip()
             
-            subprocess_instance.wait()
+                subprocess_instance.wait()
             
             if subprocess_instance.returncode == 0:
                 self.active_jobs[job_id]["status"] = "completed"

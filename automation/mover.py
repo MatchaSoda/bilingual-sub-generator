@@ -19,6 +19,7 @@ BASE_DIR = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(BASE_DIR / "backend"))
 from utils import automation_store as store  # noqa: E402
 from utils.pipeline_stages import detect_stage  # noqa: E402
+from utils.child_tmp import child_tmp_env, sweep_stale_browser_tmp  # noqa: E402
 CLI_PATH = BASE_DIR / "backend" / "entry_cli.py"
 PYTHON_PATH = BASE_DIR / "venv" / "bin" / "python3"
 YTDLP_PATH = BASE_DIR / "venv" / "bin" / "yt-dlp"
@@ -441,8 +442,8 @@ def get_video_list(channel_url, playlist_items=10):
             cmd[1:1] = ["--cookies", cookies_tmp]
             print(f"🍪 使用 cookies (临时副本): {cookies_tmp}")
         cmd.append(channel_url)
-        env = os.environ.copy()
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+        with child_tmp_env() as env:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
 
         if result.returncode != 0:
             print(f"❌ yt-dlp 获取失败: {result.stderr[:200]}")
@@ -490,8 +491,8 @@ def fetch_video_description(video_url, throttle_seconds=0):
         if cookies_tmp:
             cmd[1:1] = ["--cookies", cookies_tmp]
         cmd.append(video_url)
-        env = os.environ.copy()
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+        with child_tmp_env() as env:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
         if result.returncode != 0:
             print(f"⚠️ 拉取描述失败: {result.stderr[:200]}")
             return None
@@ -594,7 +595,8 @@ def fetch_id_and_title(video_url):
         if cookies_tmp:
             cmd[1:1] = ["--cookies", cookies_tmp]
         cmd.append(video_url)
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        with child_tmp_env() as env:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
         line = ""
         for candidate in reversed(result.stdout.splitlines()):
             if "|" in candidate:
@@ -678,41 +680,45 @@ def publish_video(video_id, video_url, video_title, config, processing=None, ful
         store.update_job(PATHS, job_id, proofread="--fix-source-text" in cli_cmd)
     set_stage("download", job_id)
 
-    # 使用 Popen 来实时获取输出
-    env = os.environ.copy()
-    process = subprocess.Popen(
-        cli_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        env=env,
-        bufsize=1,
-        universal_newlines=True
-    )
+    # 使用 Popen 来实时获取输出。子进程（含 PO Token 插件拉起的 Chromium）的临时文件都落在
+    # 独立的 TMPDIR 里，进程怎么结束都整个删掉，被 OOM 杀掉也不会漏（RUNBOOK §5.15）
+    with child_tmp_env() as env:
+        process = subprocess.Popen(
+            cli_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+            bufsize=1,
+            universal_newlines=True
+        )
 
-    translated_title = None
-    recent_lines = deque(maxlen=20)
-    current_stage = "download"
-    for line in process.stdout:
-        stripped_line = line.strip()
-        # 实时打印子进程输出
-        print(f"  [CLI] {stripped_line}", flush=True)
-        if stripped_line:
-            recent_lines.append(stripped_line)
-        if "Translated title:" in stripped_line:
-            translated_title = stripped_line.split("Translated title:", 1)[1].strip()
-        stage = detect_stage(stripped_line)
-        if stage and stage != current_stage:
-            current_stage = stage
-            set_stage(stage, job_id)
+        translated_title = None
+        recent_lines = deque(maxlen=20)
+        current_stage = "download"
+        for line in process.stdout:
+            stripped_line = line.strip()
+            # 实时打印子进程输出
+            print(f"  [CLI] {stripped_line}", flush=True)
+            if stripped_line:
+                recent_lines.append(stripped_line)
+            if "Translated title:" in stripped_line:
+                translated_title = stripped_line.split("Translated title:", 1)[1].strip()
+            stage = detect_stage(stripped_line)
+            if stage and stage != current_stage:
+                current_stage = stage
+                set_stage(stage, job_id)
 
-    process.stdout.close()
-    process.wait()
+        process.stdout.close()
+        process.wait()
 
     if process.returncode != 0:
         print(f"❌ CLI 失败 (Code {process.returncode})", flush=True)
         clues = [l for l in recent_lines if any(k in l for k in ("Error", "error", "❌", "Exception"))]
         detail = (clues or list(recent_lines) or [""])[-1]
+        if process.returncode == -9:
+            # 被 SIGKILL：生产上只有内核 OOM 会这么做，子进程来不及留下任何错误（RUNBOOK §5.15）
+            detail = f"进程被强制结束，多半是内存不足（OOM）；最后一行输出: {detail}"
         return fail("cli", f"CLI 失败 (Code {process.returncode}): {detail[-400:]}")
 
     if not target_video_path.exists():
@@ -1083,6 +1089,10 @@ def main():
         if removed:
             print(f"🧹 已清理 {removed} 个超过 {keep_days:g} 天的文件，释放 {freed / 1e9:.2f} GB")
             record_event("cleanup", removed=removed, freed=freed, keep_days=keep_days)
+        # 子进程现在各用各的 TMPDIR；这里收拾修复前漏在 /tmp 的 Chromium profile（RUNBOOK §5.15）
+        swept, swept_bytes = sweep_stale_browser_tmp()
+        if swept:
+            print(f"🧹 已清理 {swept} 个残留的浏览器临时目录，释放 {swept_bytes / 1e9:.2f} GB")
         store.trim_events(PATHS)
 
         if paused and not forced:

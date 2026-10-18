@@ -695,7 +695,9 @@ docker exec bilingual-sub-generator-mover-1 grep oom_kill /sys/fs/cgroup/memory.
 docker run --rm --privileged --pid=host alpine dmesg | grep -iE "killed process|invoked oom"  # VM 内核日志
 ```
 
-10-13 17:10 到 10-19：`oom_kill` 451 次，固定几条 10 分钟以上的新闻每次都在 large-v3 转写时被杀，短新闻照常成功。
+10-13 17:10 到 10-19：`oom_kill` 451 次，固定几条新闻每次都在 large-v3 转写时被杀，其他照常成功。**和时长没有直接关系**：
+死得最多的两条只有 8:28 和 7:38，每次都死在音频的同一秒（nFEGCC8g1p8 189 次都在 231.99 s，fwD3ix2tWJY 178 次都在 146.49 s，
+`runtime/events.jsonl` 的 failed 事件里能数出来），是音频里某一段让解码的内存冲高。12 GB 下这两条只跑转写，峰值约 6.05 GB，没有用到 swap。
 是 **OrbStack VM 的全局 OOM**（`global_oom`，不是容器限额，compose 没设内存上限）：VM 一共 8 GB（OrbStack `memory_mib: 8192`），
 和 immich、openlist 等容器共用。
 

@@ -705,6 +705,9 @@ large-v3 的内存（cpu/int8、beam 5、词级时间戳、VAD，同一条 654 �
   解码，和内容有关，所以总是同一批视频死。`ps` 看到的 RSS 很平，因为多出来的都被挤进了 zram，要看 `/proc/<pid>/status` 的 `VmSwap`。
 - `MALLOC_ARENA_MAX=2`（10-19 起写在 compose 里）把平台期压到约 3.8 GB、峰值压到约 6.2 GB，耗时 312 → 322 秒。只靠它不够。
 - 真正的限制是 VM 大小。turbo 小得多，但用户要求搬运用 large-v3（§5.14），不要为省内存换模型，先问用户。
+- **10-19 00:40 按用户决定把 OrbStack VM 调到 12 GB**（`orbctl config set memory_mib 12288` 后 `orbctl stop; orbctl start`，
+  所有容器跟着重启，之后要用新镜像重建 web / mover）。调完同一条视频在生产里整条流水线跑通：entry_cli 的 `VmHWM` 7.3 GB、
+  `oom_kill` 0，成片 1920x1080，投稿 BV1DcnV6rEpV。注意整条流水线的峰值比单测转写（6.2 GB）还高，8 GB 的 VM 一定不够。
 
 **OOM 的连带后果：/tmp 泄漏。** PO Token 插件（yt-dlp-getpot-wpc → nodriver）在 TMPDIR 里建 Chromium profile：
 - 每次 yt-dlp 运行都会漏一个空的 `uc_*`：插件的 `is_available()` 和每次取 token 都 new 一个 nodriver `Config`，

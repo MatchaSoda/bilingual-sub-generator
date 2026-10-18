@@ -7,15 +7,18 @@
 
 ## 现在的状态
 
-**10-19 凌晨：自动搬运从 10-17 19:28 起没有再投出任何视频，mover 容器 /tmp 漏到 25.9 GB。根因是 VM 内存不够，已提交修复，未部署**（RUNBOOK §5.15）。
+**10-19 凌晨：自动搬运从 10-17 19:28 起没有再投出任何视频，mover 容器 /tmp 漏到 25.9 GB。根因是 VM 内存不够，已修复并部署**（RUNBOOK §5.15）。
 - 10-13 17:10 起固定几条 10 分钟以上的新闻每次在 large-v3 转写时被 VM 全局 OOM 杀掉（-9，451 次）。失败不写 history，它们每轮排最前、
-  占满 3 个名额，后面的视频一直轮不到（§5.6）。large-v3 长视频峰值 6.7–8 GB，OrbStack VM 一共 8 GB，还要分给 immich、openlist。
+  占满 3 个名额，后面的视频一直轮不到（§5.6）。large-v3 长视频整条流水线峰值 7.3 GB，OrbStack VM 原来一共 8 GB，还要分给 immich、openlist。
 - 每次 OOM 漏一个约 55 MB 的 Chromium profile，每次 yt-dlp 运行再漏一个空目录。/tmp 里的 25 GB 已手工清掉（只删 `uc_*` /
-  `org.chromium.Chromium.*` 目录，视频不在 /tmp），容器可写层 25.9 GB → 3.6 MB。
-- 提交：`1369311` 子进程独立 TMPDIR、每轮清扫旧 profile；`13e953d` 同一视频失败 3 次就放弃（`gave_up`）；`faa0406` `MALLOC_ARENA_MAX=2`
-  （峰值约 6.2 GB，只靠它不够）。289 个测试通过。
-- **待用户决定：** OrbStack VM 内存是否从 8 GB 调大（要重启 OrbStack，所有容器跟着重启）；什么时候部署。不调内存就部署的话，
-  那几条长视频会再失败 3 次后被放弃，要等内存够了用 §7 补投。卡住的是 QZG60lwe9ng、nFEGCC8g1p8、fwD3ix2tWJY。
+  `org.chromium.Chromium.*` 目录，视频不在 /tmp），容器可写层 25.9 GB → 5 MB。
+- 提交：`1369311` 子进程独立 TMPDIR、每轮清扫旧 profile；`13e953d` 同一视频失败 3 次就放弃（`gave_up`）；`faa0406` `MALLOC_ARENA_MAX=2`。
+  289 个测试通过。**用户同意后 OrbStack VM 调到 12 GB（00:40），镜像 a257bfea 00:41 部署。**
+- 部署后验证：Xvfb 正常；§6 探针 5/5 `399(1080) + 251`；卡了 5 天的 QZG60lwe9ng（654 秒）整条跑通，`oom_kill` 0，成片 1920x1080，
+  00:59:50 投稿成功 BV1DcnV6rEpV；之后 mover 的 /tmp 不再新增 `uc_*`。
+- 01:00:41 OrbStack 被正常关机（不是崩溃，不是 Claude 会话执行的，来源不明），01:01 手动 `orbctl start` 恢复，Xvfb 正常。
+- 另外两条卡住的 nFEGCC8g1p8、fwD3ix2tWJY（10-13 发布）已经滑出最近 300 条的扫描窗口，不会再被自动处理；要不要用 §7 补投待用户决定。
+- 未 push（本地 main 比 origin 多 5 个提交）。
 
 **10-12 凌晨：按用户要求核对了今晚所有改动的界面和实际功能，修了 6 处，02:09 已部署并 push**（`4b2e71a`..`9db8fb9`）。
 部署后 Xvfb 正常，§6 下载探针 5/5 是 `399(1080) + 251`，mover 第一轮正常；线上各页逐页看过，导入确认框实测列出

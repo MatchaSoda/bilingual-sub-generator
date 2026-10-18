@@ -473,8 +473,10 @@ IP 族。钉好后重新采样确认只剩干净的那个段，再跑一次探�
 
 ### 5.6 同一个视频每轮都失败
 
-失败不写 history（§3），所以**确定性的失败会无限重试**：每 30 分钟一次，每次占掉一个
-处理名额，日志里同样的报错刷几百遍，看起来像大面积故障。先数一下是不是只有一个视频：
+失败不写 history（§3），下一轮会重试。10-19 起自动搬运**同一个视频最多试 3 次**（`automation_store.MAX_AUTO_ATTEMPTS`，
+计数在 `runtime/failures.json`），第 3 次失败就写进 history，并记一条 `gave_up` 跳过（界面显示「多次失败已放弃」，带最后的报错）。
+在这之前确定性的失败会无限重试：每 30 分钟一次，每次占掉一个处理名额，几个必败的视频就能把整个频道卡住（10-13 到 10-19 就是，§5.15）。
+放弃的视频修好原因后用 §7 补投。Web 投稿任务和 backfill 只跑一次，不受这个限制。先数一下是不是只有一个视频：
 
 ```bash
 journalctl -u bili-mover --since "3 days ago" | grep -oE "开始处理: .*\(([A-Za-z0-9_-]{11})\)" \
@@ -683,6 +685,36 @@ docker compose run --rm -T setup bash -c '/app/venv/bin/python3 /app/scripts/rep
 
 **用户的要求：这类提示词千万不能用。** 丢内容和乱码都是静默的，不报错。标点不全由分段兜住（MeCab + 停顿，
 `segment_optimizer.py`），人名交给 §5.12 的纠错，它会参考标题和简介。新闻搬运要的是准确，不是速度，模型用 large-v3（10-11 起）。
+
+### 5.15 `CLI 失败 (Code -9)`，以及 mover 容器 /tmp 涨到几十 GB
+
+**-9 是 SIGKILL，生产上只有内核 OOM 会这么做**，子进程来不及打印任何错误，日志最后一行通常是某句转写。确认：
+
+```bash
+docker exec bilingual-sub-generator-mover-1 grep oom_kill /sys/fs/cgroup/memory.events     # 次数
+docker run --rm --privileged --pid=host alpine dmesg | grep -iE "killed process|invoked oom"  # VM 内核日志
+```
+
+10-13 17:10 到 10-19：`oom_kill` 451 次，固定几条 10 分钟以上的新闻每次都在 large-v3 转写时被杀，短新闻照常成功。
+是 **OrbStack VM 的全局 OOM**（`global_oom`，不是容器限额，compose 没设内存上限）：VM 一共 8 GB（OrbStack `memory_mib: 8192`），
+和 immich、openlist 等容器共用。
+
+large-v3 的内存（cpu/int8、beam 5、词级时间戳、VAD，同一条 654 秒的新闻，每 10 秒采一次）：
+- 加载完约 3.4 GB 常驻（模型文件是 fp16 的 2.9 GB，CTranslate2 读进来再转 int8）。
+- 转写中平台期约 4.4 GB；末尾约 30 秒冒一个约 +2 GB 的尖峰，RSS 加 swap 合计 6.7–8 GB。尖峰两次都在，猜测是音频尾部的温度回退
+  解码，和内容有关，所以总是同一批视频死。`ps` 看到的 RSS 很平，因为多出来的都被挤进了 zram，要看 `/proc/<pid>/status` 的 `VmSwap`。
+- `MALLOC_ARENA_MAX=2`（10-19 起写在 compose 里）把平台期压到约 3.8 GB、峰值压到约 6.2 GB，耗时 312 → 322 秒。只靠它不够。
+- 真正的限制是 VM 大小。turbo 小得多，但用户要求搬运用 large-v3（§5.14），不要为省内存换模型，先问用户。
+
+**OOM 的连带后果：/tmp 泄漏。** PO Token 插件（yt-dlp-getpot-wpc → nodriver）在 TMPDIR 里建 Chromium profile：
+- 每次 yt-dlp 运行都会漏一个空的 `uc_*`：插件的 `is_available()` 和每次取 token 都 new 一个 nodriver `Config`，
+  `Config` 构造时就 mkdtemp，只有真正拉起浏览器的那个会被登记清理。
+- 拉起浏览器的那个 profile（用过约 55 MB）靠 nodriver 的 atexit 删除，进程被 OOM 杀掉就不会执行。451 次 OOM = 451 个满的 profile。
+  6 天里 mover 容器可写层涨到 25.9 GB（`docker system df -v` 的容器 SIZE 一栏），一天约 4.5 GB。
+
+10-19 起 mover 和 Web 任务给每个 yt-dlp / entry_cli 子进程一个独立 TMPDIR，进程不管怎么结束都整个删掉（`utils/child_tmp.py`）；
+mover 每轮开头还会清掉 /tmp 下超过 6 小时的 `uc_*` / `org.chromium.Chromium.*` 目录。容器可写层应该一直在 MB 级，
+再看到 GB 级就是又有地方绕过了 `child_tmp_env`。
 
 ---
 
